@@ -11,13 +11,15 @@ over time.
 
 * `bn/` is the binary botnet component, i.e. perl (`.net_bn`)
 
+   * `bn/bnperl/' a custom perl module linked into the binary.
+
 * `pl/` is the perl botnet component (`.net_pl`)
 
-* `pl/bn/` is botnet modules
+* `pl/bn/` contains the perl botnet modules,
 
-* `pl/fn/` is botnet commands (first argument on command line)
+* `pl/fn/` contains botnet commands (first argument on command line)
 
-* `pl/tn/` is low-level botnet components, size-optimised
+* `pl/tn/` contains low-level botnet components, heavily size-optimised
 
    * `pl/tn/pa.c` print-architecture, executed to see if architecture matches
 
@@ -28,14 +30,30 @@ over time.
    * `pl/tn/tn.c` "telnet" - simple authenticated command/fileserver. last
       component installed before main botnet.
 
-* `cc/` is command & control infrastructure
+* `cc/` contains some command & control infrastructure
 
-   * `cc/bm/` is "command & control" components, also uses `pl/bn/` modules
+   * `cc/bm/` contains "command & control" perl modules, also uses `pl/bn/` modules
 
    * `cc/bin/` contains commandline programs and daemons
 
-The directory structure is not most convenient for usage, but was made so it hopefully
-is easier to distinguish components.
+The directory structure is not most convenient for usage, but was made so
+it hopefully is easier to distinguish components.
+
+The components that actually execute on infected devices are
+the `pl/` ones and `bn/` ones.
+
+In addition, standard third party code is used, such as various CPAN
+modules, the dropbear ssh client and staticperl.
+
+This is the list of third-party perl modules (their dependencies are not
+listed). Thanks a lot to these authors, without whose work this wouldn't
+be possible.
+
+   POSIX Socket URI Array::Heap Filesys::Statvfs Convert::Scalar Guard
+   EV CBOR::XS MIME::Base64 AnyEvent AnyEvent::Fork AnyEvent::Fork::RPC
+   AnyEvent::Fork::Pool Coro Compress::LZF Set::IntSpan BSD::Resource
+   Math::TrulyRandom GDBM_File AnyEvent::HTTP Filter::Util::Call
+   Sub::Uplevel
 
 # Contact
 
@@ -51,19 +69,19 @@ The White Team <rav7teif@ya.ru>
   First, for learning. Second, for understanding. Third, for fun, and
   fourth, for your (and our) security. Apart from the learning experience,
   this is a truly altruistic project, and no malicious actions are planned
-  (and it nice touch that Symantec watch over this).
+  (and it is nice touch that Symantec watch over this).
 
 * Why release now?
 
   It was never intended to be secret. And to be truly ethical (Stallman
-  said) it needs to have a free license (agree) and ask before acting (also
-  agree, so only half way there).
+  said) it needs to have a free license (agreed) and ask before acting (also
+  agreed, so we are only half way there).
 
 * Why not release earlier?
 
-  To avoid unwanted attention, especially by other mlaware authors who want
-  to avoid detection. Plan failed, unwanted attention has been attracted, so
-  release is fine.
+  To avoid unwanted attention, especially by other mlaware authors who
+  want to avoid detection. The plan failed, unwanted attention has been
+  attracted, so there are no reasons not to release anymore.
 
 * Who are you?
 
@@ -75,26 +93,38 @@ The White Team <rav7teif@ya.ru>
   scanning malware, the amount energy saved by killing illegal bitcoin
   miners, the number of reboots and service interruptions prevented by
   not overheating these devices, the number of credentials and money not
-  stolen should all outweigh this. We co-opted your devices to help the
-  general public (in a small way).
+  stolen should all outweigh this.
+  
+  We co-opted your devices to help the general public (in a small way).
 
 * Can I trust you to not do evil things with my devices?
 
-  Yes, but that is of no help - somebody could steal the key, no matter
-  how well I protect it. More likely, there is a bug in the code that
-  allows access to anybody.
+  As a matter of fact, yes, but that is of no practical help - somebody
+  could steal the botnet key, no matter how well I protect it. And
+  software is never perfect - chances are there is a bug in the code that
+  allows access to anybody (even though multiple researchers tries but
+  failed to find one). And in the end, it's a common trick by fraudsters
+  to assure people that they are trustworthy.
 
 * Should I trust you?
 
-  Of course not, you should secure your device.
+  No. This does not mean that we don't promise to screw you (we herewith
+  do promise to not screw you intentionally), it means you should not rely
+  on us to keep you safe, because we might not be able to. Instead, you
+  should reassert control of your device and close the obvious security
+  holes and look for firmware updates regularly.
 
-* Why is this not a problem?
+  If you do that, then you don't have to worry whether to trust us or not.
+
+* Aren't devices mostly secure until you hack them with elaborate exploits?
 
   Linux.Wifatch doesn't use elaborate backdoors or 0day exploits to
   hack devices. It basically just uses telnet and a few other protocols
   and tries a few really dumb or default passwords (our favourite is
-  "password"). These passwords are well-known - anybody can do that,
-  without having to steal any secret key.
+  "password").
+  
+  These passwords are well-known - almost anybody can do that. And a lot
+  of people with much less friendly intentions actively do that.
 
   Basically it only infects devices that are not protected at all in the
   first place!
@@ -107,15 +137,15 @@ The White Team <rav7teif@ya.ru>
 
 * Where is the Stallman quote comment?
 
-  There never was such a comment. The quote was used as telnet message for
-  a while. We agree with it, but found it a bit silly to use it there, so
-  removed it quickly. Here is his quote:
+  There never was such a comment. The quote was used as telnet message
+  for a while. We agree with it, but found it a bit silly to use it as a
+  telnet banner, so removed it after a short time. Here is his quote:
 
   To any NSA and FBI agents reading my email: please consider
   whether defending the US Constitution against all enemies,
   foreign or domestic, requires you to follow Snowden's example.
 
-* The passwords/secret keys are missing!
+* The passwords/secret keys are missing from the sources!
 
   Well, we hope they are missing. This release is for releasing the code,
   not to make it easy to hack others, or to actually run it.
@@ -127,7 +157,23 @@ The White Team <rav7teif@ya.ru>
 
 * Where are the build scripts?
 
-  Not part of the initial release.
+  Not part of the initial release. Shouldn't keep you from studying, if
+  that is your plan.
+
+* How many infected devices are there, really?
+
+  It is quite hard to measure the exact size of a network that constantly
+  changes.
+
+  We enumerate the whole core network (the so-called "bn" component)
+  multiple times a day, and the usual number of Wifatch instances is 60000
+  (and almost never exceeding 120000). Only these are currently being
+  protected and disinfected.
+
+  In addition, there is a much larger number of devices with a much
+  smaller component, the so-called "tn" component. The exact number of
+  these is very hard to measure, but it should be around 200000-300000
+  at any point in time.
 
 * Is there a proof that this is the official repository?
 
