@@ -18,22 +18,22 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
+# download specimens not yet known, as reported by the botnet
+# also write a small list of most-commonly misreported files,
+# so backchannel messages cna be avoided.
+
 $| = 1;
 
 use lib "/mnt/u1/hen57/hak";
 
-use Errno         ();
-use CBOR::XS      ();
-use JSON::XS      ();
-use Compress::LZF ();
+use Errno    ();
+use CBOR::XS ();
+use JSON::XS ();
 use Coro;
-use AnyEvent::Socket ();
-use EV               ();
-use PApp::SQL;
+use EV          ();
 use Digest::SHA ();
 
 use strict;
-use bm::socks;
 use bm::crypto;
 use bm::file;
 use bm::tn;

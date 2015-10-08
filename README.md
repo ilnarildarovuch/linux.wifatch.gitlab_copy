@@ -60,7 +60,8 @@ be possible.
 In case of problem, question, missing files: ask, but do not expect speedy
 reply!
 
-The White Team <rav7teif@ya.ru>
+The White Team <rav7teif@ya.ru>.
+PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
 
 # Q&A
 
@@ -70,6 +71,32 @@ The White Team <rav7teif@ya.ru>
   fourth, for your (and our) security. Apart from the learning experience,
   this is a truly altruistic project, and no malicious actions are planned
   (and it is nice touch that Symantec watch over this).
+
+* Did you always intent to fight malware?
+
+  No. The idea for this botnet came after reading the
+  [Carna paper](http://internetcensus2012.bitbucket.org/paper.html). The main
+  interesting points were "2012 may be the last time [...] this was possible"
+  and the fact that embedded device security seems to be virtually nonexistant,
+  even to our own surprise.
+
+  Bootstrapping a botnet was a technical challenge, and the prize was
+  knowledge, something we found worth investing time in. Relatively
+  quickly we found out about other malware, which became increasingly
+  scary, so we thought, just like the Carna botnet before us, we need to
+  do something about it.
+
+  Sometimes even simple things are hard to implement though: it took us
+  more than a year to actively and somewhat reliably close down the telnet
+  port (and sercomm), as killing or stopping the telnet daemon doesn't work well,
+  and implement a reasonable malware detection and disinfection
+  function, all of which was new to us.
+
+  So the idea of such a botnet and the initial seed of disinfecting these
+  devices can both be attributed to the Carna botnet.
+
+  Looking at the Carna paper now, it even mentions the fun aspect of doing
+  it, so it really is the spiritual predecessor in many ways.
 
 * Why release now?
 
@@ -174,6 +201,13 @@ The White Team <rav7teif@ya.ru>
   smaller component, the so-called "tn" component. The exact number of
   these is very hard to measure, but it should be around 200000-300000
   at any point in time.
+
+* Are you behind the Carna botnet?
+
+  Most emphatically: No! We admire the idea of the Carna botnet and the
+  amount of data gathered, and it would be great injustice to assume their
+  work was ours. Besides, we'd probably have signed this document with the
+  Carna public key if we could...
 
 * Is there a proof that this is the official repository?
 

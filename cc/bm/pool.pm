@@ -23,8 +23,7 @@ use strict;
 
 use List::Util;
 use Coro;
-use Coro::AnyEvent;
-use PApp::SQL;
+use Coro::AnyEvent ();
 
 use bm::cc;
 use bm::sql;

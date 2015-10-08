@@ -27,7 +27,6 @@ use strict;
 use Errno ();
 use Coro;
 use Carp ();
-use PApp::SQL;
 use Digest::SHA3;    # actually needs to be keccak, not sha3
 use Scalar::Util ();
 use CBOR::XS     ();
