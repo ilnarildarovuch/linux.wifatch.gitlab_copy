@@ -18,15 +18,32 @@
  * along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#if __ARM_EABI__
-# define SCN(n) ((n) & 0xfffff)
-#else
-# define SCN(n) (n)
-#endif
+#ifndef TINY_UTIL_H
+# define TINY_UTIL_H
 
-#define MSG(s) s, sizeof (s) - 1
+# include <inttypes.h>
+
+# if __ARM_EABI__
+#  define SCN(n) ((n) & 0xfffff)
+# else
+#  define SCN(n) (n)
+# endif
+
+# define MSG(s) s, sizeof (s) - 1
+
+# define MIN(a,b) ((a) < (b) ? (a) : (b))
+# define MAX(a,b) ((a) > (b) ? (a) : (b))
 
 static uint8_t buffer[65536];   // 768 = ~50 bytes smaller exe
+
+struct linux_dirent64
+{
+        uint64_t ino;
+        int64_t off;
+        unsigned short reclen;
+        uint8_t type;
+        char name[0];
+};
 
 __attribute__ ((noinline))
 static uint32_t xatoi(const char *c)
@@ -39,7 +56,20 @@ static uint32_t xatoi(const char *c)
         return r;
 }
 
-#define atoi(s) xatoi (s)
+# define atoi(s) xatoi (s)
+
+//__attribute__ ((noinline))
+static int xstrlen(void *s)
+{
+        char *ps = s;
+
+        while (*ps)
+                ++ps;
+
+        return ps - (char *)s;
+}
+
+# define strlen(s) xstrlen (s)
 
 //__attribute__ ((noinline))
 static void *xmemcpy(void *a, const void *b, int len)
@@ -53,7 +83,7 @@ static void *xmemcpy(void *a, const void *b, int len)
         return a;
 }
 
-#define ymemcpy(a,b,l) xmemcpy (a,b,l)
+# define ymemcpy(a,b,l) xmemcpy (a,b,l)
 
 //__attribute__ ((noinline))
 static uint8_t xmemcmp(const void *a, const void *b, int len)
@@ -72,7 +102,7 @@ static uint8_t xmemcmp(const void *a, const void *b, int len)
         return 0;
 }
 
-#define memcmp(a,b,l) xmemcmp (a,b,l)
+# define memcmp(a,b,l) xmemcmp (a,b,l)
 
 __attribute__ ((noinline))
 static void prnum(unsigned int n)
@@ -89,3 +119,5 @@ static void prnum(unsigned int n)
 
         write(1, p, buffer + 128 - p);
 }
+
+#endif

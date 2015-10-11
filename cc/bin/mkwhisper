@@ -23,6 +23,7 @@
 use strict;
 use Digest::SHA;
 use CBOR::XS;
+use Compress::LZF;
 
 my $version = shift;
 my $arch    = shift;

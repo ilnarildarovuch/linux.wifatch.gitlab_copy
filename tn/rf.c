@@ -74,6 +74,7 @@ static void w(char ch)
                 quit(2);
 }
 
+// print a number, in hex, but using a..p for digits, followed by a dot
 static void prnum(uint32_t n)
 {
         do {
@@ -197,6 +198,7 @@ static void run(void)
 
 #if NOSTARTFILES
 
+// dirty hack to get rid of libc
 void _start(void)
 {
         run();

@@ -27,6 +27,13 @@ use bm::file;
 
 my $tn = new bm::tn split /:/, shift;
 
+#$tn->open ("/etc/passwd");
+#while (length (my $buf = $tn->readall (1))) {
+#	syswrite STDOUT, "$buf\n";
+#}
+#use Data::Dump; ddx $tn->readdir ("/etc");
+#exit;
+
 #my $file = bm::file::load "arch/x86/tn";
 
 #print $tn->read_file ("/proc/1240/exe");exit;

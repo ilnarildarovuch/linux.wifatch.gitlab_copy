@@ -32,9 +32,10 @@ sub compile
 
 	my $sub = eval "
 		package $pkg;
-		fo->[1] {
+		sub $info->[1] {
 #line 1 \"$pkg\::$name$info->[1]\"
-		o->[2]
+			$info->[2]
+		}
 	";
 	die $@ if $@;
 

