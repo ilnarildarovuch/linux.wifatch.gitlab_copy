@@ -616,6 +616,35 @@ sub readdir_
 
 *ls_ = \&readdir_;    # TODO: remove
 
+sub keccak256_
+{
+	my $cb = pop;
+	my ($self, $len) = @_;
+
+	$self->{version} >= 10
+		or die "$self->{host}: keccak on old tn\n";
+
+	$len //= 0xffffffff;
+
+	my $guard = $self->{wl}->guard;
+	$self->wpkt(pack "C C x2 L$self->{endian}", 24, 0, $len);    # 0 = keccak, vs. sha3
+	$self->{rq}->put(
+		sub {
+			$cb->($self->rpkt);
+		});
+}
+
+sub keccak_
+{
+	my ($self, $path, $cb) = @_;
+
+	if ($cb = $self->_cache(keccak => $path, $cb)) {
+		$self->open($path);
+		$self->keccak256_($cb);
+		$self->close;
+	}
+}
+
 sub fnv32a_
 {
 	my $cb = pop;

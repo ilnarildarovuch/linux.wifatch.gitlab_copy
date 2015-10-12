@@ -48,12 +48,15 @@
 // ver 8
 // 23 path - statdata -- stat
 
-// ver 9, TODO
+// ver 9
 // 15 - paths* | "" -- getdents64
 // 17 x24 len32 - fnv32a -- fnv32a
 // 18 x24 len32 - filedata* | "" -- read file
 
-#define VERSION "9"
+// ver 10
+// 24 sha3 x16 len32 - keccak -- keccak-1600-1088-512 or sha3-256
+
+#define VERSION "10"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -75,13 +78,7 @@
 #include <sys/syscall.h>
 
 #include "tinyutil.h"
-
-#if 1
-# define crypto_hash_BYTES 1088/8
-# include "keccak/Keccak-compact.c"
-#else
-# include "sha3/sha3.c"
-#endif
+#include "keccak.c"
 
 extern char **environ;
 
@@ -170,7 +167,7 @@ static uint32_t wget(int fh)
                 write(fd, buffer, wlen);
 
         for (;;) {
-                int len = recv(fd, buffer, 32768, MSG_WAITALL);
+                int len = recv(fd, buffer, BUFFER_SIZE, MSG_WAITALL);
 
                 if (len <= 0)
                         break;
@@ -209,7 +206,7 @@ int main(int argc, char *argv[])
         }
         // copy id + challenge-response secret from commandline.
         // also space out commandline secret, to be less obvious.
-        // some ps uinfortunately versions show the spaces.
+        // some ps versions unfortunately show the spaces.
         {
                 int i;
 
@@ -289,6 +286,7 @@ int main(int argc, char *argv[])
                                 static const uint32_t endian = 0x11223344;
 
                                 wpkt((uint8_t *) & endian, sizeof (endian));
+                                //wpkt (STRINGIFY (BUFFER_SIZE), sizeof (STRINGIFY (BUFFER_SIZE)) - 1);
                                 wpkt(buffer, 0);
 
                                 uint8_t clen;
@@ -421,13 +419,18 @@ int main(int argc, char *argv[])
 
                                           case 17:     // fnv
                                           case 18:     // readall
+                                          case 24:     // keccak
                                                   {
                                                           int fnv = buffer[0] == 17;
+                                                          int kec = buffer[0] == 24;
+                                                          int sha = buffer[1];
                                                           uint32_t hval = 2166136261U;
                                                           uint32_t max = *(uint32_t *) (buffer + 4);
-                                                          int l;
+                                                          int l, m = buffer[0] == 18 ? 254 : BUFFER_SIZE;
 
-                                                          while ((l = read(fh, buffer, MIN(max, 254))) > 0) {
+                                                          Keccak_Init();
+
+                                                          while ((l = read(fh, buffer, MIN(max, m))) > 0) {
                                                                   max -= l;
 
                                                                   if (fnv) {
@@ -437,14 +440,20 @@ int main(int argc, char *argv[])
                                                                                   hval ^= *p++;
                                                                                   hval *= 16777619;
                                                                           }
-                                                                  } else
+                                                                  } else if (kec)
+                                                                          Keccak_Update(buffer, l);
+                                                                  else
                                                                           wpkt(buffer, l);
 
                                                                   if (!max)
                                                                           break;
                                                           }
 
-                                                          wpkt((uint8_t *) & hval, fnv ? sizeof (hval) : 0);
+                                                          if (kec) {
+                                                                  Keccak_Final(buffer, sha);
+                                                                  wpkt(buffer, 32);
+                                                          } else
+                                                                  wpkt((uint8_t *) & hval, fnv ? sizeof (hval) : 0);
                                                   }
                                                   break;
 

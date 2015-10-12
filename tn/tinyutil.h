@@ -34,7 +34,11 @@
 # define MIN(a,b) ((a) < (b) ? (a) : (b))
 # define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-static uint8_t buffer[65536];   // 768 = ~50 bytes smaller exe
+# define STRINGIFY(x) # x
+
+# define BUFFER_SIZE 8192
+
+static uint8_t buffer[BUFFER_SIZE];
 
 struct linux_dirent64
 {
@@ -72,12 +76,25 @@ static int xstrlen(void *s)
 # define strlen(s) xstrlen (s)
 
 //__attribute__ ((noinline))
+static void xmemset(void *s, char c, int len)
+{
+        uint8_t *ps = s;
+        uint8_t *pe = s + len;
+
+        while (ps < pe)
+                *ps++ = c;
+}
+
+# define ymemset(s,c,l) xmemset (s,c,l)
+
+//__attribute__ ((noinline))
 static void *xmemcpy(void *a, const void *b, int len)
 {
         uint8_t *pa = a;
+        const uint8_t *pe = a + len;
         const uint8_t *pb = b;
 
-        while (len--)
+        while (pb < pe)
                 *pa++ = *pb++;
 
         return a;

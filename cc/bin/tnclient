@@ -33,6 +33,7 @@ my $tn = new bm::tn split /:/, shift;
 #}
 #use Data::Dump; ddx $tn->readdir ("/etc");
 #exit;
+die unpack "H*", $tn->keccak("sha");
 
 #my $file = bm::file::load "arch/x86/tn";
 
