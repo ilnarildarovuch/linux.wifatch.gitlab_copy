@@ -54,6 +54,8 @@
 // 18 x24 len32 - filedata* | "" -- read file
 
 // ver 10
+// use wait4 instead of waitpid, maybe that helps
+// properly set so_reuseaddr on the listening socket
 // 24 sha3 x16 len32 - keccak -- keccak-1600-1088-512 or sha3-256
 
 #define VERSION "10"
@@ -100,21 +102,6 @@ static const struct sigaction sa_sigdfl = {
 };
 
 static uint8_t secret[32 + 32 + 32];    // challenge + id + secret
-
-// HexDump, for test only
-static void hd(unsigned char *buf, int l)
-{
-        const char hd[16] = "0123456789abcdef";
-
-        int i;
-
-        for (i = 0; i < l; ++i) {
-                write(2, hd + (buf[i] >> 4), 1);
-                write(2, hd + (buf[i] & 15), 1);
-        }
-
-        write(2, "\n", 1);
-}
 
 static int rpkt(int offset)
 {
@@ -222,13 +209,13 @@ int main(int argc, char *argv[])
         if (ls < 0)
                 return 0;
 
+        sockopts(ls);
+
         struct sockaddr_in sa;
 
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = INADDR_ANY;
         sa.sin_port = *(uint16_t *) (secret + 32 + 64);
-
-        sockopts(0);
 
         if (bind(ls, (struct sockaddr *)&sa, sizeof (sa)))
                 return 0;
@@ -273,7 +260,7 @@ int main(int argc, char *argv[])
 
                                 sockopts(0);
 
-                                // se bm::tn for more readable challenge response protocol
+                                // see bm::tn for more readable challenge response protocol
                                 write(0, secret, 32 + 32);
                                 crypto_hash(buffer, secret, 32 + 32 + 32);
 
@@ -386,7 +373,7 @@ int main(int argc, char *argv[])
                                                           }
 
                                                           if (pid > 0)
-                                                                  syscall(SCN(SYS_waitpid), (int)pid, &ret, 0);
+                                                                  syscall(SCN(SYS_wait4), (int)pid, &ret, 0, 0);
 
                                                           if (!quiet)
                                                                   wpkt(secret, 32 + 32);        // challenge + id

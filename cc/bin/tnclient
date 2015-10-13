@@ -27,13 +27,15 @@ use bm::file;
 
 my $tn = new bm::tn split /:/, shift;
 
+#use Data::Dump; ddx $tn->rsh ("ls");
+
 #$tn->open ("/etc/passwd");
 #while (length (my $buf = $tn->readall (1))) {
 #	syswrite STDOUT, "$buf\n";
 #}
 #use Data::Dump; ddx $tn->readdir ("/etc");
 #exit;
-die unpack "H*", $tn->keccak("sha");
+#warn unpack "H*", $tn->keccak ("sha");
 
 #my $file = bm::file::load "arch/x86/tn";
 
@@ -46,9 +48,10 @@ die unpack "H*", $tn->keccak("sha");
 
 #warn $tn->rsh ("date;sleep 5");
 
-$tn->telnet;
-
 #$tn->wpkt (chr 21); $tn->{rq}->put (sub { warn unpack "H*", $tn->rpkt });
 #$tn->rsh ("sleep 5");
 #$tn->wpkt (chr 21); $tn->{rq}->put (sub { warn unpack "H*", $tn->rpkt });
 #Coro::AnyEvent::sleep 99;
+
+$tn->telnet;
+

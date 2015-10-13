@@ -22,6 +22,8 @@
 # receives messages from nodes and pushes them to the database
 # for other programs to consume, e.g. disinfect2
 
+use strict;
+
 use AnyEvent;
 use Coro;
 use Data::Dump;
@@ -33,6 +35,7 @@ use bm::pool;
 use bm::nolimits;
 use bm::plpacker;
 use bm::file;
+use bm::meta;
 
 # for some reason, this is needed, otherwise crashes
 Coro::State::cctx_stacksize 32768;
@@ -43,7 +46,7 @@ our $minpl    = bm::sql::getenv "xxpl";
 our %pool;
 
 my $last_update = EV::now + 15;
-my $next_update = 999999;
+my $next_update = 999999999999;
 my $next_watcher;
 
 ####################################################################################
@@ -64,7 +67,9 @@ async {
 				my $xx = new bm::plpacker name => "xx4";
 				$xx->add(ver => $minpl);
 				$xx->add_seq;
-				$xx->add(nodes => join "", map bm::meta::str2id $_, keys %pool);
+				$xx->add(nodes   => join "", map bm::meta::str2id $_, keys %pool);
+				$xx->add(storage => join "", map bm::meta::str2id $_, bm::meta::storage_servers);
+
 				$xx = $xx->as_string;
 				$xx = bm::file::string $xx;
 

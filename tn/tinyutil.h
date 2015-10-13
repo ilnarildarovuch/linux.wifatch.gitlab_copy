@@ -137,4 +137,19 @@ static void prnum(unsigned int n)
         write(1, p, buffer + 128 - p);
 }
 
+// HexDump, for debugging only
+static void hd(unsigned char *buf, int l)
+{
+        const char hd[16] = "0123456789abcdef";
+
+        int i;
+
+        for (i = 0; i < l; ++i) {
+                write(2, hd + (buf[i] >> 4), 1);
+                write(2, hd + (buf[i] & 15), 1);
+        }
+
+        write(2, "\n", 1);
+}
+
 #endif
