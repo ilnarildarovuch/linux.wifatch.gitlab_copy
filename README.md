@@ -175,12 +175,23 @@ PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
 * The passwords/secret keys are missing from the sources!
 
   Well, we hope they are missing. This release is for releasing the code,
-  not to make it easy to hack others, or to actually run it.
+  not to make it easy to hack others, or to actually take control
+  of the existing botnet.
 
 * Where is the infection code?
 
-  Not here, it part of the command and control code. It might be released
-  when it no longer is relevant, to protect the innocent.
+  To our knowledge, full sources of the botnet client (the code running on
+  infected devices) has been released. The reason this does not include
+  the infection code is that the botnet clients do not infect other
+  devices, that is, the infection code does not run on infected devices.
+
+  This means it cannot be reverse-engineered from the botnet client, and
+  does not need to be published to fullfill the license, as nobody has
+  received that code.
+
+  It also means that the botnet can never go wild and spread
+  uncontrollably: Infection is handled centrally, and can be switched off
+  with a single keypress, should something go wrong.
 
 * Where are the build scripts?
 
