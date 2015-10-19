@@ -108,10 +108,6 @@ if ($bn::SAFE_MODE) {
 	$bn::hpv::np = 900;
 }
 
-bn::log "RUN upgrade";
-eval {require bn::upgrade;};
-bn::log "ERROR upgrade: $@" if $@;
-
 bn::log "RUN net";
 bn::net::init;
 

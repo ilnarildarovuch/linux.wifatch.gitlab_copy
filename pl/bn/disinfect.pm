@@ -42,9 +42,9 @@ sub is_malware($)
 {
 	my ($path) = @_;
 
-	return 1 if $path =~ m%/\.(?:btce|drop)$%;
+	return 1 if $path =~ m%/\.(?:btce|drop|mvXUDI)$%;
 	my $link = readlink $path;    ## hack
-	return 1 if $link =~ m%/\.(?:btce|drop)$%;    ## hack
+	return 1 if $link =~ m%/\.(?:btce|drop|mvXUDI)$%;    ## hack
 
 	if (open my $fh, "<:raw", $path) {
 		Coro::AnyEvent::sleep 0.1;
@@ -75,7 +75,7 @@ sub is_malware($)
 			}
 		}
 
-		# upx only almost always malware
+		# upx
 		#		"UPX!" eq $get->(0x78, 4)
 		#			and return 1;
 
@@ -260,6 +260,35 @@ sub block_telnet
 		kill STOP => $find_telnet->();
 	}
 }
+
+our $telnet_killer_cache;
+
+our $telnet_killer = EV::timer 1, 5, sub {
+	bn::func::async {
+		opendir my $dfh, "/proc";
+
+		my $new;
+
+		for my $pid (grep /^\d+$/, readdir $dfh) {
+			undef $new->{$pid};
+
+			unless (exists $telnet_killer_cache->{$pid}) {
+				my ($xname, $ppid) = procinfo $pid;
+
+				if ($xname eq "sh") {
+					my ($pname, undef) = procinfo $ppid;
+
+					if ($pname =~ /^(?:telnetd|utelnetd|in.telnetd)$/) {
+						bn::log "disinfect kill child of telnetd ($pname => $xname)";
+						kill 9 => $pid;
+					}
+				}
+			}
+		}
+
+		$telnet_killer_cache = $new;
+	};
+};
 
 ####################################################################################
 # potential malware file?

@@ -31,6 +31,7 @@ use Digest::KeccakOld ();
 use Scalar::Util      ();
 use CBOR::XS          ();
 use MIME::Base64      ();
+use Coro::AnyEvent    ();
 
 use bn::io;
 
@@ -1096,6 +1097,9 @@ sub upgrade_tn
 	$self->kill(9, $tnpid);
 	$self->system("\Q$lair\E/.net_tn $creds");
 	$self->flush;
+	$self->system("\Q$lair\E/.net_tn $creds");
+	$self->flush;
+	Coro::AnyEvent::sleep 1;
 	$self->system("\Q$lair\E/.net_tn $creds");
 	$self->flush;
 

