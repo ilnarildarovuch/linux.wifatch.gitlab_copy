@@ -65,15 +65,15 @@ sub {
 
 		if ($pid eq 0) {
 			close $r;
-			bn::proc::oom_adj 2;
-			require bn::default;
 
 			if ($bn::SAFE_COMMAND == 254) {
 				bn::proc::oom_adj - 1;
-				bn::func::reexec();
-				bn::proc::oom_adj 2;
-				$bn::REEXEC_FAILED = 1;
+				require bn::reexec;
+				$bn::REEXEC_FAILED = bn::reexec::reexec();
 			}
+
+			bn::proc::oom_adj 2;
+			require bn::default;
 
 			bn::default::init();
 			bn::proc::oom_adj 1;

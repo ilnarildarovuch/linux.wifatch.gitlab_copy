@@ -14,7 +14,7 @@ http://creativecommons.org/publicdomain/zero/1.0/
 Endianness fixes and further downsizing by Team White.
 */
 
-#define EXTRA_SMALL 1
+#define KECCAK_EXTRA_SMALL 0
 
 #include <string.h>
 #include <endian.h>
@@ -27,7 +27,10 @@ typedef uint64_t tKeccakLane;
 
 #define cKeccakNumberOfRounds   24
 
-#define ROL(a, offset) (((a) << ((offset) & 63)) ^ ((a) >> (64 - ((offset) & 63))))
+static uint64_t Keccak_ROL64(uint64_t a, int bits)
+{
+        return ((a << (bits & 63)) ^ (a >> (64 - (bits & 63))));
+}
 
 static const tKeccakLane KeccakF_RoundConstants[cKeccakNumberOfRounds] = {
         0x0000000000000001ULL,
@@ -56,9 +59,15 @@ static const tKeccakLane KeccakF_RoundConstants[cKeccakNumberOfRounds] = {
         0x8000000080008008ULL
 };
 
+#if KECCAK_EXTRA_SMALL          // big speed hit
+# define KeccakF_RotationConstants(x) (((x + 1) * (x + 2) / 2) & 63)
+#else
 static const uint8_t KeccakF_RotationConstants[25] = {
         1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44
 };
+
+# define KeccakF_RotationConstants(x) KeccakF_RotationConstants[x]
+#endif
 
 static const uint8_t KeccakF_PiLane[25] = {
         10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1
@@ -97,8 +106,8 @@ static void KeccakF(void)
         int round, x, y;
         tKeccakLane temp;
         tKeccakLane BC[5];
-        tKeccakLane *state = (tKeccakLane *) Keccak_state.state;
         unsigned int lfsr = 1;
+        tKeccakLane *state = (tKeccakLane *) Keccak_state.state;
 
         Keccak_bss();
 
@@ -108,7 +117,7 @@ static void KeccakF(void)
                         BC[x] = state[x] ^ state[5 + x] ^ state[10 + x] ^ state[15 + x] ^ state[20 + x];
 
                 for (x = 0; x < 5; ++x) {
-                        temp = BC[KeccakF_Mod5[x + 4]] ^ ROL(BC[KeccakF_Mod5[x + 1]], 1);
+                        temp = BC[KeccakF_Mod5[x + 4]] ^ Keccak_ROL64(BC[KeccakF_Mod5[x + 1]], 1);
 
                         for (y = 0; y < 25; y += 5)
                                 state[y + x] ^= temp;
@@ -118,26 +127,29 @@ static void KeccakF(void)
                 temp = state[1];
                 for (x = 0; x < 24; ++x) {
                         BC[0] = state[KeccakF_PiLane[x]];
-                        state[KeccakF_PiLane[x]] = ROL(temp, KeccakF_RotationConstants[x]);
+                        state[KeccakF_PiLane[x]] = Keccak_ROL64(temp, KeccakF_RotationConstants(x));
                         temp = BC[0];
                 }
 
                 // Chi
                 for (y = 0; y < 25; y += 5) {
-                        for (x = 0; x < 5; ++x)
-                                BC[x] = state[y + x];
+                        memcpy(BC, state + y, sizeof (BC[0]) * 5);
 
                         for (x = 0; x < 5; ++x)
                                 state[y + x] = BC[x] ^ ((~BC[KeccakF_Mod5[x + 1]]) & BC[KeccakF_Mod5[x + 2]]);
                 }
 
                 // Iota
-#if EXTRA_SMALL
+#if KECCAK_EXTRA_SMALL          // medium speed hit
                 for (y = 0; y < 7; ++y) {
                         if (lfsr & 1)
                                 state[0] ^= ((tKeccakLane) 1) << ((1 << y) - 1);
 
-                        lfsr = (lfsr << 1) ^ (lfsr & 0x80 ? 0x71 : 0x00);
+                        if (lfsr & 0x80) {
+                                lfsr <<= 1;
+                                lfsr ^= 0x71;
+                        } else
+                                lfsr <<= 1;
                 }
 #else
                 state[0] ^= KeccakF_RoundConstants[round];
@@ -159,8 +171,8 @@ static void Keccak_Update(const uint8_t * data, unsigned int len)
                 Keccak_state.state[Keccak_state.inqueue++] ^= *data++;
 
                 if (Keccak_state.inqueue == cKeccakR / 8) {
-                        KeccakF();
                         Keccak_state.inqueue = 0;
+                        KeccakF();
                 }
         }
 }
@@ -168,13 +180,13 @@ static void Keccak_Update(const uint8_t * data, unsigned int len)
 static void Keccak_Final(uint8_t * out, int sha3)
 {
         // Padding
-        Keccak_state.state[Keccak_state.inqueue] ^= sha3 ? 6 : 1;
+        Keccak_state.state[Keccak_state.inqueue] ^= sha3 ? 0x06 : 0x01;
         Keccak_state.state[cKeccakR / 8 - 1] ^= 0x80;
 
         KeccakF();
 
         // Output
-        memcpy(out, Keccak_state.state, 32);
+        memcpy(out, Keccak_state.state, 256 / 8);
 }
 
 static void crypto_hash(unsigned char *out, const unsigned char *in, unsigned long long inlen)
@@ -183,3 +195,39 @@ static void crypto_hash(unsigned char *out, const unsigned char *in, unsigned lo
         Keccak_Update(in, inlen);
         Keccak_Final(out, 0);
 }
+
+#ifdef TEST
+
+# include <unistd.h>
+
+// HexDump, for debugging only
+static void hd(unsigned char *buf, int l)
+{
+        const char hd[16] = "0123456789abcdef";
+
+        int i;
+
+        for (i = 0; i < l; ++i) {
+                write(1, hd + (buf[i] >> 4), 1);
+                write(1, hd + (buf[i] & 15), 1);
+        }
+
+        write(1, "\n", 1);
+}
+
+int main(void)
+{
+        char buf[512];
+        int l;
+
+        Keccak_Init();
+
+        while ((l = read(0, buf, sizeof buf)) > 0)
+                Keccak_Update(buf, l);
+
+        Keccak_Final(buf, 1);
+
+        hd(buf, 32);
+}
+
+#endif

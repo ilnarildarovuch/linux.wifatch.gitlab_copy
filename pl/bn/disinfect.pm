@@ -87,7 +87,7 @@ sub is_malware($)
 				? "x40 $Qe x10 S$e S$e"
 				: "x32 L$e x10 S$e S$e";
 
-			my ($sho, $ssh, $nsh) = unpack $pf, $get->(0, 128);
+			my ($sho, $ssh, $nsh) = eval {unpack $pf, $get->(0, 128)};
 
 			# segment headers not in binary?
 			$nsh

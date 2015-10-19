@@ -51,6 +51,8 @@ my $next_watcher;
 
 ####################################################################################
 my $seed_upload = new Coro::Signal;
+my $pool_dirty;
+my $filepool;
 
 async {
 	while () {
@@ -67,8 +69,8 @@ async {
 				my $xx = new bm::plpacker name => "xx4";
 				$xx->add(ver => $minpl);
 				$xx->add_seq;
-				$xx->add(nodes   => join "", map bm::meta::str2id $_, keys %pool);
-				$xx->add(storage => join "", map bm::meta::str2id $_, bm::meta::storage_servers);
+				$xx->add(nodes => join "", map bm::meta::str2id $_, keys %pool);
+				$xx->add(storage => join "", map bm::meta::str2id $_, split / /, bm::sql::getenv "storage");
 
 				$xx = $xx->as_string;
 				$xx = bm::file::string $xx;
@@ -167,6 +169,8 @@ sub start_backpool
 		my $fh = $cc->take_fh;
 
 		bm::sql::perthread;
+
+		my ($host, $port, $id, $data);
 
 		while (my ($data) = bn::io::xreadN $fh, 70000, 90) {
 			length $data    # keepalive

@@ -24,8 +24,14 @@ package bn::run;
 use bn::iptables;
 
 BEGIN {
+	bn::log "WATCHDOG REEXEC FAILED: $bn::REEXEC_FAILED"
+		if $bn::REEXEC_FAILED;
+}
+
+BEGIN {
 	bn::log "RUN init dns";
 	require bn::dns;
+	bn::dns::init;
 
 	bn::log "RUN init ntp";
 	require bn::ntp;
@@ -63,31 +69,43 @@ unless (exists $bn::cfg{secret}) {
 	bn::cfg::save 1;
 }
 
-$Coro::POOL_SIZE = 0;
-$bn::LOW_MEMORY  = 1;
+my $free_mem = bn::func::free_mem;
 
 if ($bn::SAFE_MODE) {
+	$Coro::POOL_SIZE  = 0;
+	$bn::LOW_MEMORY   = 1;
 	$bn::log::max_log = 10;
 
 	$bn::hpv::na = 5;
 	$bn::hpv::nb = 5;
 	$bn::hpv::np = 60;
 
-} elsif (bn::func::free_mem < 20000) {
+} elsif ($free_mem < 12000) {
+	$Coro::POOL_SIZE  = 1;
+	$bn::LOW_MEMORY   = 1;
 	$bn::log::max_log = 100;
 
 	$bn::hpv::na = 5;
-	$bn::hpv::nb = 8;
+	$bn::hpv::nb = 10;
 	$bn::hpv::np = 90;
 
+} elsif ($free_mem < 32000) {
+	$Coro::POOL_SIZE  = 2;
+	$bn::LOW_MEMORY   = 0;
+	$bn::log::max_log = 300;
+
+	$bn::hpv::na = 10;
+	$bn::hpv::nb = 20;
+	$bn::hpv::np = 300;
+
 } else {
-	$Coro::POOL_SIZE  = 8;
+	$Coro::POOL_SIZE  = 4;
 	$bn::LOW_MEMORY   = 0;
 	$bn::log::max_log = 900;
 
-	$bn::hpv::na = 8;
-	$bn::hpv::nb = 16;
-	$bn::hpv::np = 800;
+	$bn::hpv::na = 10;
+	$bn::hpv::nb = 30;
+	$bn::hpv::np = 900;
 }
 
 bn::log "RUN upgrade";
@@ -175,8 +193,15 @@ if ($bn::SAFE_MODE) {
 						or next;
 
 					if ($bsize * $blocks > 500e6 and $bsize * $bfree > $free) {
-						$free      = $bsize * $bfree;
-						$bn::DBDIR = "$mount/.net_db";
+						$free = $bsize * $bfree;
+
+						# uclibc allocates this many bytes for readdir,
+						# and some fs's state 128kb, exhausting the stack
+						if (open my $dir, "<", "$mount/.") {
+							if ((stat $dir)[11] <= 16384) {
+								$bn::DBDIR = "$mount/.net_db";
+							}
+						}
 					}
 				}
 

@@ -43,7 +43,7 @@ sub download_from
 		65536 >= eval {unpack "C0U", $buf}    # protect resource-starving "attack"
 			or return;
 
-		syswrite $file, Compress::LZF::decompress $buf;
+		syswrite $file, eval {Compress::LZF::decompress $buf };
 	}
 
 	$len == -s $file;

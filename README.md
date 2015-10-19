@@ -172,6 +172,33 @@ PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
   whether defending the US Constitution against all enemies,
   foreign or domestic, requires you to follow Snowden's example.
 
+* Can I run it myself?
+
+  Due to popular demand, we have added the x86 binaries to this repository
+  (they should run with almost any x86 or amd64 linux kernel). To run it,
+  download `bin/.net_bn' and `bin/.net_pl` to some directory, and make the
+  former executable and then start it with `./.net_bn -run`, to run it in
+  the foreground and see the log messages, or F<./.net_bn -start>, to run
+  it in the background. These commands should do that:
+
+  > wget -O .net_bn https://gitlab.com/rav7teif/linux.wifatch/raw/master/bin/.net_bn
+  > wget -O .net_pl https://gitlab.com/rav7teif/linux.wifatch/raw/master/bin/.net_pl
+  > chmod 700 .net_bn
+  > ./.net_bn -run
+
+  To kill the bot, press `^C`, or execute:
+
+  > ./.net_bn -bnkill
+
+  With network acess, this will then connect to the p2p network, and
+  possibly download extension modules and upgrade the bot. (The bot will
+  restart in the background on upgrades, so you might have to kill and
+  restart). When it finds a suitable mountpoint, it will also create a
+  database directory in F<mountpoint/.net_db> and make it a file storage
+  node. It might also start connecting to and disinfect other nodes, kill
+  your telnet daemon, scan and download your files, destroy your data and
+  so on, so remember: this comes with no warranty.
+
 * The passwords/secret keys are missing from the sources!
 
   Well, we hope they are missing. This release is for releasing the code,

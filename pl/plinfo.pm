@@ -18,4 +18,4 @@
 #
 
 $bn::PLVERSION   = 465;
-$bn::PLBNVERSION = 24;
+$bn::PLBNVERSION = 26;

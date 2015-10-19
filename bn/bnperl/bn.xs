@@ -6,6 +6,8 @@
 #include <tommath.h>
 //#include <tomcrypt.h>
 
+#include "../keccak.c"
+
 typedef char hash_state[256]; // *should* be more than enough
 
 // we know binary has these, but include file has too many dependencies,
@@ -91,7 +93,7 @@ ptr2buf (const void *ptr, int len)
 static void
 ptr2buffer (buffer *buf, const void *ptr, int len)
 {
-  buf->data = ptr;
+  buf->data = (void *)ptr;
   buf->len  = len;
   buf->pos  = 0;
   buf->size = 0;
@@ -174,6 +176,28 @@ sha256_done (SV *state)
 	OUTPUT:
         RETVAL
 
+void
+sha3_init ()
+	CODE:
+        Keccak_Init ();
+
+void
+sha3_process (SV *data)
+	CODE:
+        STRLEN len;
+        char *datap = SvPVbyte (data, len);
+        Keccak_Update (datap, len);
+
+SV *
+sha3_done (int keccak = 0)
+	CODE:
+        RETVAL = newSV (256 / 8);
+        SvPOK_only (RETVAL);
+        SvCUR_set (RETVAL, 256 / 8);
+        Keccak_Final (SvPVX (RETVAL), !keccak);
+	OUTPUT:
+        RETVAL
+
 int
 _ecdsa_verify (SV *sig, SV *data)
 	CODE:
@@ -201,5 +225,4 @@ powm (SV *xbin, SV *dbin, SV *Nbin)
         mp_clear (&N);
 	OUTPUT:
         RETVAL
-
 

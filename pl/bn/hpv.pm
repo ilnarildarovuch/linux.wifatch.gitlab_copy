@@ -428,6 +428,7 @@ bn::event::on port_connect_me0aX7Ew => sub {
 # message broadcast
 # 1 - !whisper version
 # 2 - bn xx seq
+# 3 - bnup info/request packet
 
 our $MAX_PACKET   = 255 - 3;    # maximum packet size we receive/forward
 our $MAX_BACKLOG  = 64;

@@ -17,35 +17,86 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
+package AnyEvent::DNS;
+
+use EV::ADNS;
+
+sub ns($$)
+{
+	my ($domain, $cb) = @_;
+
+	EV::ADNS::submit $domain, EV::ADNS::r_ns_raw, EV::ADNS::qf_cname_loose, sub {
+		my ($status, $ttl, @res) = @_;
+
+		$cb->(@res);
+	};
+}
+
+sub aaaa($$)
+{
+	my ($domain, $cb) = @_;
+
+	EV::ADNS::submit $domain, EV::ADNS::r_aaaa, EV::ADNS::qf_cname_loose, sub {
+		my ($status, $ttl, @res) = @_;
+
+		$cb->(@res);
+	};
+}
+
+sub a($$)
+{
+	my ($domain, $cb) = @_;
+
+	EV::ADNS::submit $domain, EV::ADNS::r_a, EV::ADNS::qf_cname_loose, sub {
+		my ($status, $ttl, @res) = @_;
+
+		$cb->(@res);
+	};
+}
+
+sub srv($$$$)
+{
+	my ($service, $proto, $domain, $cb) = @_;
+
+	EV::ADNS::submit "_$service._$proto.$domain", EV::ADNS::r_srv_raw, EV::ADNS::qf_cname_loose | EV::ADNS::qf_quoteok_query, sub {
+		my ($status, $ttl, @res) = @_;
+
+		$cb->(@res);
+	};
+}
+
 package bn::dns;
 
-my @cfg = (max_outstanding => 16, timeout => [1, 2, 4, 8, 16, 24], search => [], ndots => 1);
-my @dns_test = qw(google.com ietf.org berkeley.edu);
+sub init
+{
+	my @dns_test = qw(google.com ietf.org berkeley.edu);
 
-$AnyEvent::DNS::RESOLVER = new AnyEvent::DNS @cfg, server => \@AnyEvent::DNS::DNS_FALLBACK;
+	EV::ADNS::reinit undef, "
+		nameserver 8.8.4.4
+		nameserver 8.8.8.8
+		options ndots:0
+	";
 
-for (@dns_test) {
-	AnyEvent::DNS::ns $_, Coro::rouse_cb;
-	return 1 if Coro::rouse_wait;
+	for (@dns_test) {
+		AnyEvent::DNS::ns $_, Coro::rouse_cb;
+		return 1 if Coro::rouse_wait;
+	}
+
+	bn::log "DNS first round failure";
+
+	EV::ADNS::reinit undef, undef;
+
+	for (@dns_test) {
+		AnyEvent::DNS::ns $_, Coro::rouse_cb;
+		return 1 if Coro::rouse_wait;
+	}
+
+	bn::log "DNS failure";
+
+	# failure
+	$bn::SAFE_MODE   ||= 1;
+	$bn::SAFE_STATUS ||= "dns";
 }
-
-bn::log "DNS first round failure";
-
-$AnyEvent::DNS::RESOLVER = new AnyEvent::DNS @cfg, server => \@AnyEvent::DNS::DNS_FALLBACK;
-$AnyEvent::DNS::RESOLVER->os_config;
-$AnyEvent::DNS::RESOLVER->{search} = [];
-$AnyEvent::DNS::RESOLVER->_compile;
-
-for (@dns_test) {
-	AnyEvent::DNS::ns $_, Coro::rouse_cb;
-	return 1 if Coro::rouse_wait;
-}
-
-bn::log "DNS failure";
-
-# failure
-$bn::SAFE_MODE   ||= 1;
-$bn::SAFE_STATUS ||= "dns";
 
 1
 

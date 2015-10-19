@@ -212,9 +212,6 @@ use bn::auto sub => <<'END';
 eval reexec();
 bn::log "reexec";
 
--x $::EXEC
-	or return bn::log "ERROR cannot reexec: missing bn";
-
 my $guard = $bn::SEMSET->guard("reexec");
 
 bn::event::inject "save";
@@ -224,44 +221,10 @@ $::SAFE_MODE = .5;
 delete $bn::cfg{crash};
 bn::cfg::save();
 
-{
-	my $pid = open my $fh, "-|" // return bn::log "ERROR cannot reexec: check error";
-
-	unless ($pid) {
-		bn::proc::oom_adj 17;
-		exec $::EXEC, "check";
-		POSIX::_exit 126;
-	}
-
-	my $to = AE::time + 90;
-	my $buf;
-
-	while () {
-		Coro::AnyEvent::readable $fh, 101
-			or return bn::log "ERROR cannot reexec: check timeout (1)";
-
-		$to > AE::now
-			or return bn::log "ERROR cannot reexec: check timeout (2)";
-
-		sysread $fh, $buf, 128, length $buf
-			or last;
-
-		exit 7 if 1024 < length $buf;
-	}
-
-	$buf =~ /Shei7ool.*uobei5Ei/s
-		or return bn::log "ERROR cannot reexec: check magic number fail ($buf)";
+require bn::reexec;
+if (my $error = bn::reexec::reexec()) {
+	bn::log "REEXEC FAILED: $error";
 }
-
-bn::event::inject "reexec2";
-
-require bn::bnkill;
-bn::bnkill::bnkill();
-
-bn::event::inject "reexec3";
-
-bn::proc::oom_adj - 17;
-exec $::EXEC "/sbin/ifwatch", "-start";
 
 END
 

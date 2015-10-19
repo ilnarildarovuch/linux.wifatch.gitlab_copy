@@ -25,16 +25,32 @@ use Digest::SHA;
 use CBOR::XS;
 use Compress::LZF;
 
+use bm::file;
+
 my $version = shift;
 my $arch    = shift;
 
 my %whisper;
 
-$whisper{plversion} = $version;
-$whisper{bnversion} = $arch;
+sub add
+{
+	my ($name, $path) = @_;
 
-#$whisper{minbnversion} = 24;
-$whisper{skipbn} = 1;    # never got around to make automated bn upgrades
+	#	warn "add $name ($path)\n";
+
+	my $file = bm::file::load $path;
+	$whisper{file}{$name} = [length $file->{data}, $file->{sha}, $file->{version}, $file->{perm}];
+}
+
+if ($version) {    # distinguish old-style vs. new-style updater
+	$whisper{plversion} = $version;
+	$whisper{bnversion} = $arch;
+
+	#$whisper{minbnversion} = 24;
+	$whisper{skipbn} = 1;    # never got around to make automated bn upgrades
+} else {
+	add pl => "dist/pl";
+}
 
 for (   [bn => "botnet"],
 
@@ -47,12 +63,10 @@ for (   [bn => "botnet"],
 	my ($bn, $botnet) = @$_;
 
 	for my $path (<arch/*/$botnet>) {
-		my $sha = new Digest::SHA "sha256";
-		$sha->addfile($path);
-		my $size = -s $path;
-		$path =~ s%/\Q$botnet%/$bn%;
-		$path =~ s%^arch/%%;
-		$whisper{file}{$path} = [$size, $sha->digest];
+		my $name = $path;
+		$name =~ s%/\Q$botnet%/$bn%;
+		$name =~ s%^arch/%%;
+		add $name => $path;
 	}
 }
 

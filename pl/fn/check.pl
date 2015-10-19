@@ -17,16 +17,18 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
-# check if it starts
+# check if it starts, probably
 
 print "Shei7ool\n";
 
 require bn::iptables;
 
 require bn::net;
+require bn::dns;
 require bn::port;
 require bn::ccport;
 require bn::hpv;
+require bn::xx;
 
 #require bn::storage;
 #require bn::upgrade;

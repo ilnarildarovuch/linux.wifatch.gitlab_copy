@@ -50,8 +50,12 @@ BEGIN {
 	undef &AnyEvent::Util::idn_to_ascii;
 	undef &AnyEvent::Util::idn_to_unicode;
 }
+BEGIN {$INC{"AnyEvent/DNS.pm"} = 1}
+use AnyEvent::DNS ();
+use bn::log;
+use Coro ();    # TODO - has to be loaded for dns
+use bn::dns;    # AnyEvent::DNS replacement
 use AnyEvent::Socket ();
-use AnyEvent::DNS    ();
 
 BEGIN {
 	undef &AnyEvent::Socket::_parse_hosts;
@@ -78,7 +82,6 @@ use plinfo;
 use bn::crypto;
 use bn::back;
 use bn::io;
-use bn::log;
 use bn::event;
 use bn::lock;
 use bn::func;

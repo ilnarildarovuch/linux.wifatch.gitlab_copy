@@ -26,11 +26,11 @@ use strict;
 
 use Errno ();
 use Coro;
-use Carp ();
-use Digest::SHA3;    # actually needs to be keccak, not sha3
-use Scalar::Util ();
-use CBOR::XS     ();
-use MIME::Base64 ();
+use Carp              ();
+use Digest::KeccakOld ();
+use Scalar::Util      ();
+use CBOR::XS          ();
+use MIME::Base64      ();
 
 use bn::io;
 
@@ -67,8 +67,8 @@ sub gensecret($)
 {
 	my ($id) = @_;
 
-	$id = Digest::SHA3::sha3_256 $id . $KEY_FIXED;
-	$id = Digest::SHA3::sha3_256 $KEY_FIXED . $id;
+	$id = Digest::KeccakOld::sha3_256 $id . $KEY_FIXED;
+	$id = Digest::KeccakOld::sha3_256 $KEY_FIXED . $id;
 
 	$id
 }
@@ -84,7 +84,7 @@ sub gencreds(;$)
 		my $id = $id0 ^ pack "N", $c;
 
 		return ($id, gensecret $id)
-			if $type == ord Digest::SHA3::sha3_256 $id . $KEY_TYPE;
+			if $type == ord Digest::KeccakOld::sha3_256 $id . $KEY_TYPE;
 
 		++$c;
 	}
@@ -132,6 +132,7 @@ sub _new
 		rq   => (new Coro::Channel),
 		wl   => (new Coro::Semaphore),
 		ol   => (new Coro::Semaphore),
+		cwd  => (new Coro::Semaphore),    # lock for changing the cwd
 	}, $class;
 
 	($self->{chg}) = bn::io::xread $fh, 32 or return;
@@ -150,10 +151,10 @@ sub _new
 			$secret = $self->{id};
 		}
 
-		$secret = Digest::SHA3::sha3_256 $secret . $key;
-		$secret = Digest::SHA3::sha3_256 $key . $secret;
+		$secret = Digest::KeccakOld::sha3_256 $secret . $key;
+		$secret = Digest::KeccakOld::sha3_256 $key . $secret;
 
-		bn::io::xwrite $fh, pack "C/a", Digest::SHA3::sha3_256 "$self->{chg}$self->{id}$secret";
+		bn::io::xwrite $fh, pack "C/a", Digest::KeccakOld::sha3_256 "$self->{chg}$self->{id}$secret";
 	}
 
 	($self->{version}, $self->{arch}) = split /\//, $self->rpkt;
@@ -496,7 +497,9 @@ sub xstat_
 		$self->{rq}->put(
 			sub {
 				my ($dev, $ino, $mode, $size, $mtime) = unpack "L$self->{endian}*", $self->rpkt;
-				$cb->([$dev, $ino, $mode, 1, 0, 0, undef, $size, $mtime, $mtime, $mtime, undef, undef]);
+				$cb->(  defined $dev
+					? [$dev, $ino, $mode, 1, 0, 0, undef, $size, $mtime, $mtime, $mtime, undef, undef]
+					: ());
 			});
 	}
 }
@@ -619,7 +622,7 @@ sub readdir_
 
 *ls_ = \&readdir_;    # TODO: remove
 
-sub keccak256_
+sub sha3_256_
 {
 	my $cb = pop;
 	my ($self, $len) = @_;
@@ -630,20 +633,22 @@ sub keccak256_
 	$len //= 0xffffffff;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt(pack "C C x2 L$self->{endian}", 24, 0, $len);    # 0 = keccak, vs. sha3
+	$self->wpkt(pack "C C x2 L$self->{endian}", 24, 1, $len);    # 1 = keccak, vs. sha3
 	$self->{rq}->put(
 		sub {
 			$cb->($self->rpkt);
 		});
 }
 
-sub keccak_
+sub sha3_
 {
-	my ($self, $path, $cb) = @_;
+	my $cb = pop;
+	my ($self, $path, $ofs, $len) = @_;
 
-	if ($cb = $self->_cache(keccak => $path, $cb)) {
+	if ($cb = $self->_cache(sha3 => "$path,$len,$ofs", $cb)) {
 		$self->open($path);
-		$self->keccak256_($cb);
+		$self->lseek(0, $ofs) if $ofs;
+		$self->sha3_256_($len, $cb);
 		$self->close;
 	}
 }
@@ -746,9 +751,13 @@ sub replace_file
 	$self->open("${path}x", 1);
 	$self->write($file->{data});
 	$self->close;
-	$self->chmod($file->{perm}, "${path}x");
 
-	# TODO: verify
+	if ($self->fnv("${path}x") != $file->{fnv}) {
+		$self->unlink("${path}x");
+		return 0;
+	}
+
+	$self->chmod($file->{perm}, "${path}x");
 	$self->rename("${path}x", $path);
 
 	1
@@ -852,13 +861,14 @@ sub dl_file_
 						my $success;
 
 						$self->fnv_($dstx, my $rcb = Coro::rouse_cb);
-
 						if ($file->{fnv} eq Coro::rouse_wait $rcb) {
 							$self->chmod($file->{perm}, $dstx);
 							$self->rename($dstx, $dst);
 							return $cb->(1);
 
 						} else {
+
+							#warn "$self->{name}: $dst download checkusm failure)\n";
 							$self->unlink($dstx);
 						}
 					}
@@ -877,6 +887,14 @@ sub sync_
 	my ($self, $cb) = @_;
 
 	$self->{rq}->put($cb);
+}
+
+sub flush
+{
+	my ($self) = @_;
+
+	$self->ping_(sub { });
+	$self->sync while $self->{rq}->size;
 }
 
 ####################################################################################
@@ -1064,7 +1082,8 @@ sub upgrade_tn
 	my $tn = bm::file::load "arch/$_[0]{arch}/tn";
 
 	unless ($self->dl_file($tn, "$lair/.net_tn")) {
-		$self->replace_file("$lair/.net_tn", $tn);
+		$self->replace_file("$lair/.net_tn", $tn)
+			or die "$self->{name}: unable to dl net_tn\n";
 	}
 
 	my $creds = format_credarg $self->{id}, gensecret $self->{id}, $self->{port};
@@ -1073,13 +1092,16 @@ sub upgrade_tn
 	#	my $out = $self->rsh ("echo hi");
 	#	use Data::Dump; ddx $out;
 	#	printf "RET=%x\n", $self->ret;
-	#	$self->ping;
+	$self->flush;
 	$self->kill(9, $tnpid);
-	$self->rsh("\Q$lair\E/.net_tn $creds");
+	$self->system("\Q$lair\E/.net_tn $creds");
+	$self->flush;
+	$self->system("\Q$lair\E/.net_tn $creds");
+	$self->flush;
 
-	$self->ping;
+	print "$self->{name} updated tn\n";
 
-	warn "$tnpid id $lair $creds\n";
+	1
 }
 
 # upgrade bn
@@ -1122,8 +1144,8 @@ sub upgrade
 	my $pl = $self->load_pl;
 	$self->dl_file($pl, "$lair/.net_pl");
 	unless ($self->dl_file($pl, "$lair/.net_pl")) {
-		warn "$self->{name} unable to dl pl\n";
-		$self->write_file("$lair/.net_pl", $pl->{data})
+		warn "$self->{name} unable to dl pl, trying direct upload\n";
+		$self->replace_file("$lair/.net_pl", $pl)
 			or die "$self->{name} unable to send pl\n";
 	}
 

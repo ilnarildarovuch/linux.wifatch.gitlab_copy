@@ -229,8 +229,13 @@ sub register($$)
 	$reg{$name} = $reg{$sha} = [$path, $sha];
 }
 
--e "$::BASE/.net_pl" and register "base/pl" => "$::BASE/.net_pl";
--e "$::BASE/.net_$_" and register "base/$bn::BNARCH/$_" => "$::BASE/.net_$_" for qw(rf dl tn bn);
+sub register_base_files()
+{
+	-e "$::BASE/.net_pl" and register "base/pl" => "$::BASE/.net_pl";
+	-e "$::BASE/.net_$_" and register "base/$bn::BNARCH/$_" => "$::BASE/.net_$_" for qw(rf dl tn bn);
+}
+
+register_base_files;
 
 1
 

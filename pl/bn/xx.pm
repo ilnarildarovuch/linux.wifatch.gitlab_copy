@@ -26,10 +26,12 @@ package bn::xx;
 # 2 - temp patches
 # 3 - readme(?)
 # 4 - backchannel
+# 5 - improved upgrader
 
 our $I;    # current index during call
 our @PL;
 our @SEQ;
+our $BOOT = 1;
 
 sub call($$;@)
 {
@@ -45,67 +47,68 @@ sub call($$;@)
 	@r
 }
 
-sub unload
-{
-	my ($i) = @_;
+use bn::auto sub => <<'END';
+sub unload($);
+my ($i) = @_;
 
+if ($PL[$i] && !$BOOT) {
 	bn::event::inject "unloadxx", $i, $PL[$i];
 	bn::event::inject "unloadxx$i", $PL[$i];
 	call $i, "unload";
-
-	undef $PL[$i];
-	undef $SEQ[$i];
 }
 
-sub load($;$)
-{
-	my ($i, $flags) = @_;
+undef $PL[$i];
+undef $SEQ[$i];
 
-	# flags 0 - normal load
-	# flags 1 - on boot
+END
 
-	if (my $pl = plpack::load "$::BASE/.net_$i") {
-		if ($pl->("ver") == $bn::PLVERSION) {
-			bn::log "bn::xx XX$i loading";
+use bn::auto sub => <<'END';
+eval load_init($$);
+my ($i, $flags) = @_;
 
-			unload $i;
+# flags 0 - normal load
+# flags 1 - on boot
 
-			$PL[$i]  = $pl;
-			$SEQ[$i] = $pl->("seq") + 0;
+bn::log "bn::xx XX$i running";
 
-			call $i, "load", $flags;
-			bn::event::inject "loadxx$i", $PL[$i];
-			bn::event::inject "loadxx", $i, $PL[$i];
-		} else {
-			bn::log "bn::xx XX$i ver mismatch";
+call $i, "load", $flags;
+bn::event::inject "loadxx$i", $PL[$i];
+bn::event::inject "loadxx", $i, $PL[$i];
 
-			Coro::AnyEvent::sleep 15;
-		}
+END
+
+use bn::auto sub => <<'END';
+eval load($);
+my ($i) = @_;
+
+if (my $pl = plpack::load "$::BASE/.net_$i") {
+	my $verchk = sub {
+		my ($type, $version) = @_;
+
+		my $min = $pl->("verchk_min$type");
+		my $max = $pl->("verchk_max$type");
+
+		(!$min or $version >= $min)
+			and (!$max or $version <= $max);
+	};
+
+	if ($verchk->(pl => $bn::PLVERSION) and $verchk->(bn => $bn::BNVERSION)) {
+		bn::log "bn::xx XX$i loading";
+
+		unload $i;
+
+		$PL[$i]  = $pl;
+		$SEQ[$i] = $pl->("seq") + 0;
+
+		load_init $i, 0 unless $BOOT;
+	} else {
+		bn::log "bn::xx XX$i ver mismatch";
+
+		Coro::AnyEvent::sleep 15;
 	}
 }
 
-our $QUEUE = new Coro::Channel;
-our $MANAGER;
-
-sub init
-{
-	$MANAGER = bn::func::async {
-		Coro::AnyEvent::sleep 60 unless ::DEBUG;    # deadtime after boot, to allow software updates or connects to go through
-
-		if (opendir my $dir, $::BASE) {
-			for (readdir $dir) {
-				if (/^\.net_(\d+)$/) {
-					load $1, 1;
-					whisper;
-				}
-			}
-		}
-
-		my $job;
-
-		$job->() while $job = $QUEUE->get;
-	};
-}
+END
 
 sub whisper_to($)
 {
@@ -119,6 +122,39 @@ sub whisper(;$)
 	whisper_to $_ for grep $_ ne $_[0], keys %bn::hpv::as;
 }
 
+our $QUEUE = new Coro::Channel;
+our $MANAGER;
+
+use bn::auto sub => <<'END';
+eval init;
+bn::func::async {
+	if (opendir my $dir, $::BASE) {
+		for (sort readdir $dir) {
+			if (/^\.net_(\d+)$/) {
+				load $1;
+			}
+		}
+	}
+
+	whisper;
+
+	$MANAGER = bn::func::async {
+		my $job;
+		$job->() while $job = $QUEUE->get;
+	};
+
+	# additional delay
+	Coro::AnyEvent::sleep 60 unless ::DEBUG;
+
+	undef $BOOT;
+
+	for (0 .. $#SEQ) {
+		load_init $_, 1 if $PL[$_];
+	}
+};
+
+END
+
 bn::event::on hpv_add => \&whisper_to;
 
 bn::event::on hpv_w2 => sub {
@@ -127,7 +163,7 @@ bn::event::on hpv_w2 => sub {
 	$QUEUE->put(
 		sub {
 			my $delay;
-			my @seq = unpack "w*", $data;
+			my @seq = eval {unpack "w*", $data};
 
 			for my $i (0 .. $#seq) {
 				if ($seq[$i] > $SEQ[$i]) {
