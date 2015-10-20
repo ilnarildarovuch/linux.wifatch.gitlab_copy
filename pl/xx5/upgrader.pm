@@ -47,84 +47,92 @@ sub verify
 our ($whisper, $hpv_add);
 our %neigh;
 
-my $upgrader = bn::func::async {
-	Coro::AnyEvent::sleep 10;
+use bn::auto sub => <<'END';
+eval upgrader;
+Coro::AnyEvent::sleep 10;
 
-	while () {
-		for (keys %need) {
-			my $ok = verify $_, "u";
+while () {
+	for (keys %need) {
+		my $ok = verify $_, "u";
 
-			unless ($ok) {
-				unlink "$::BASE/.net_${_}u";
-				$ok = verify $_;
-			}
-
-			if ($ok) {
-				bn::log "BNUP: have $_";
-				delete $need{$_};
-			}
+		unless ($ok) {
+			unlink "$::BASE/.net_${_}u";
+			$ok = verify $_;
 		}
 
-		unless (%need) {
-			bn::log "BNUP got all files";
-
-			rename "$::BASE/.net_${_}u", "$::BASE/.net_$_" for qw(bn pl tn);
-
-			if ($bn::BNVERSION != $want{bn}[2] or $bn::PLVERSION != $want{pl}[2]) {
-				$RESTART_WANTED        = 1;
-				$bn::port::BN_UPTODATE = 0;
-
-				bn::log "BNUP reexec $bn::REEXEC_FAILED";
-
-				if ($bn::REEXEC_FAILED) {
-					bn::back::snd print => "BNUP REEXEC_FAILED $bn::REEXEC_FAILED";
-				} else {
-					bn::back::snd print => "BNUP reexec $bn::BNARCH";
-					Coro::AnyEvent::sleep 30;
-					syswrite $bn::SAFE_PIPE, chr 254;
-					POSIX::_exit 1;
-				}
-
-			} else {
-
-				# we are uptodate, except for tn
-				bn::log "BNUP uptodate, broadcasting";
-
-				# TODO: call register_base_files once available
-				-e "$::BASE/.net_pl" and bn::fileserver::register "base/pl" => "$::BASE/.net_pl";
-				-e "$::BASE/.net_$_" and bn::fileserver::register "base/$bn::BNARCH/$_" => "$::BASE/.net_$_" for qw(rf dl tn bn);
-
-				$whisper = pack "w w/a*", $bn::xx::SEQ[5], $bn::BNARCH;
-
-				$hpv_add = bn::event::on hpv_add => sub {
-					bn::hpv::whisper $_[0], 3, $whisper;
-				};
-
-				bn::hpv::whisper $_, 3, $whisper for keys %bn::hpv::as;
-			}
-
-			Coro::terminate;
+		if ($ok) {
+			bn::log "BNUP: have $_";
+			delete $need{$_};
 		}
-
-		while (my ($src, $neigh) = each %neigh) {
-			if (++$neigh->[0] <= 3) {
-				for my $net (keys %need) {
-					next unless $net eq "pl" || $neigh->[1] eq $bn::BNARCH;
-
-					my $dst = "$::BASE/.net_${net}u";
-
-					if ((bn::fileclient::download_from $src, 2, $need{$net}[1], $dst) and verify $net, "u") {
-						bn::back::snd print => "downloaded $bn::BNARCH $net from $neigh->[1] neighbour";
-						delete $need{$net};
-					}
-				}
-			}
-		}
-
-		%need = %want unless %need;    # full verify if we are successful
-
-		Coro::AnyEvent::sleep 15;
 	}
+
+	unless (%need) {
+		bn::log "BNUP got all files";
+
+		rename "$::BASE/.net_${_}u", "$::BASE/.net_$_" for qw(bn pl tn);
+
+		if ($bn::BNVERSION != $want{bn}[2] or $bn::PLVERSION != $want{pl}[2]) {
+			$RESTART_WANTED        = 1;
+			$bn::port::BN_UPTODATE = 0;
+
+			bn::log "BNUP reexec $bn::REEXEC_FAILED";
+
+			if ($bn::REEXEC_FAILED) {
+				bn::back::snd print => "BNUP REEXEC_FAILED $bn::REEXEC_FAILED";
+			} else {
+				bn::back::snd print => "BNUP reexec $bn::BNARCH";
+				Coro::AnyEvent::sleep 30;
+				syswrite $bn::SAFE_PIPE, chr 254;
+				POSIX::_exit 1;
+			}
+
+		} else {
+
+			# we are uptodate, except for tn
+			bn::log "BNUP uptodate, broadcasting";
+
+			# TODO: call register_base_files once available
+			-e "$::BASE/.net_pl" and bn::fileserver::register "base/pl" => "$::BASE/.net_pl";
+			-e "$::BASE/.net_$_" and bn::fileserver::register "base/$bn::BNARCH/$_" => "$::BASE/.net_$_" for qw(rf dl tn bn);
+
+			$whisper = pack "w w/a*", $bn::xx::SEQ[5], $bn::BNARCH;
+
+			$hpv_add = bn::event::on hpv_add => sub {
+				bn::hpv::whisper $_[0], 3, $whisper;
+			};
+
+			bn::hpv::whisper $_, 3, $whisper for keys %bn::hpv::as;
+		}
+
+		Coro::terminate;
+	}
+
+	while (my ($src, $neigh) = each %neigh) {
+		if (++$neigh->[0] <= 3) {
+			for my $net (keys %need) {
+				next unless $net eq "pl" || $neigh->[1] eq $bn::BNARCH;
+
+				my $dst = "$::BASE/.net_${net}u";
+
+				if ((bn::fileclient::download_from $src, 2, $need{$net}[1], $dst) and verify $net, "u") {
+					bn::back::snd print => "downloaded $bn::BNARCH $net from $neigh->[1] neighbour";
+					delete $need{$net};
+				}
+			}
+		}
+	}
+
+	if (%need) {
+		Coro::AnyEvent::sleep 15;
+	} else {
+		%need = %want;    # full verify if we are successful
+	}
+}
+
+END
+
+my $upgrader = bn::func::async {
+	upgrader;
 };
 
 our $upgrade_guard = Guard::guard {
