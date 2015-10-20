@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env perl
 #
 # This file is part of Linux.Wifatch
 #
@@ -18,25 +18,17 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
+use bm::sql;
+use bm::meta;
 
-# build a new .net_pl archive
-# version number is bumped automatically
+my $st = sql_exec \my ($ip, $port), "select ip, port
+    from node
+    where misses < 5 and checks * 0.9 < seens
+    order by seens desc
+    limit 83";
 
-read PLVERSION <version-pl
-PLVERSION=$((PLVERSION+${1:-0}))
-echo $PLVERSION >version-pl
-read BNVERSION <version-bn
+my $seeds;
 
-(
-  echo "\$bn::PLVERSION=$PLVERSION;"
-  echo "\$bn::PLBNVERSION=$BNVERSION;"
-) >plinfo.pm
+$seeds .= bm::meta::str2id "$ip:$port" while $st->fetch;
 
-./mkseeds >seeds
-
-./mkwhisper $PLVERSION $BNVERSION >\!whisper
-# TODO remove whisper only needed for type 1 downloads
-./mkpl $PLVERSION $BNVERSION pl    plinfo.pm bn/*.pm fn/*.pl seeds \!whisper >dist/pl
-
-ls -l dist/pl dist/0
-
+syswrite STDOUT, $seeds;

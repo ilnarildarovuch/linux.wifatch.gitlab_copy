@@ -111,13 +111,9 @@ sub active_connect
 
 		while (keys %as < $na) {
 			unless (@ps) {
-
-				#warn unpack "H*", join "", map bn::func::str2id $_, qw(83.170.33.60:2638 83.170.33.80:2638 83.170.43.70:2638 84.11.75.195:2638);
-				add_passive
+				@ps =
 					unpack "(a6)*",
-					pack("H*", "53aa213c0a4e53aa21500a4e53aa2b460a4e540b4bc30a4e") . eval {$bn::xx::PL[1]->("seeds")};
-
-				last;
+					eval {$::PL->("seeds")} . eval {$bn::xx::PL[1]->("seeds")};
 			}
 
 			if (0) {

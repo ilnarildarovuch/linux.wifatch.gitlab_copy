@@ -34,6 +34,7 @@ use bn::auto sub => <<'END';
 eval find_file($$);
 my ($type, $id) = @_;
 
+#TODO remove type 1 downloads
 if ($type == 1) {    # pl
 	my $pl = plpack::load "$::BASE/.net_pl";
 	my $wh = CBOR::XS::decode_cbor Compress::LZF::decompress $pl->("!whisper");

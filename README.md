@@ -176,6 +176,9 @@ PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
 
 * Can I run it myself?
 
+  (Update: the version released yesterday didn't have working seeds, so
+  did not actually connect to the p2p network successfully)
+
   Due to popular demand, we have added the x86 binaries to this repository
   (they should run with almost any x86 or amd64 linux kernel). To run it,
   download `bin/.net_bn` and `bin/.net_pl` to some directory, and make the
