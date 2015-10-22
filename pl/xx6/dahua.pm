@@ -17,7 +17,7 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
-package bn::dahua;
+package xx6::dahua;
 
 # dahua module
 # keep dahua cams from rebooting, while we protect them
@@ -76,42 +76,40 @@ bn::log "dahua $@" if $@;
 
 END
 
-our $configure_timer;
+our $configure_timer = bn::func::timed_async 45, sub {
+	configure;
 
-sub init
-{
-	($configure_timer) = bn::func::timed_async 45, sub {
-		configure;
+	10007
+};
 
-		10007
-	};
+# unfortunately, we need add local user - tradeoff
+my $patch_passwd = sub {
+	open my $fh, "+</mnt/mtd/Config/passwd"
+		or return;
 
-	# unfortunately, we need add local user - tradeoff
-	my $patch_passwd = sub {
-		open my $fh, "+</mnt/mtd/Config/passwd"
+	my $max;
+
+	while (<$fh>) {
+		next if /^#/;
+
+		/^(\d+):[^:]+:.{8}:\d+:[A-Za-z0-9_, ]{4,}:/
 			or return;
 
-		my $max;
+		/^\d+:system:not-the-real-password:/
+			and return;
 
-		while (<$fh>) {
-			next if /^#/;
+		$max = $1 if $1 > $max;
+	}
 
-			/^(\d+):[^:]+:.{8}:\d+:[A-Za-z0-9_, ]{4,}:/
-				or return;
+	if ($max++) {
 
-			/^\d+:system:not-the-real-password:/
-				and return;
+		#TODO should only need AutoMaintain, fix existing boxes, too
+		#print $fh "$max:system:not-the-real-password:1:Account, Control, AutoMaintain, GeneralConf, DefaultConfig:your_device_has_been_hacked_please_secure_it:1:16\n";
+		print $fh "$max:system:not-the-real-password:1:AutoMaintain:your_device_has_been_hacked_please_secure_it:1:16\n";
+	}
+};
 
-			$max = $1 if $1 > $max;
-		}
-
-		if ($max++) {
-			print $fh "$max:system:not-the-real-password:1:Account, Control, AutoMaintain, GeneralConf, DefaultConfig:your_device_has_been_hacked_please_secure_it:1:16\n";
-		}
-	};
-
-	$patch_passwd->();
-}
+$patch_passwd->();
 
 1
 

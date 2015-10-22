@@ -18,7 +18,8 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
-# build !whisper data, for upgrades
+# originally build "!whisper" data, for upgrades
+# now only builds the whisper file for xx5
 
 use strict;
 use Digest::SHA;
@@ -42,15 +43,7 @@ sub add
 	$whisper{file}{$name} = [length $file->{data}, $file->{sha}, $file->{version}, $file->{perm}];
 }
 
-if ($version) {    # distinguish old-style vs. new-style updater
-	$whisper{plversion} = $version;
-	$whisper{bnversion} = $arch;
-
-	#$whisper{minbnversion} = 24;
-	$whisper{skipbn} = 1;    # never got around to make automated bn upgrades
-} else {
-	add pl => "dist/pl";
-}
+add pl => "dist/pl";
 
 for (   [bn => "botnet"],
 
@@ -70,5 +63,5 @@ for (   [bn => "botnet"],
 	}
 }
 
-syswrite STDOUT, Compress::LZF::compress_best encode_cbor \%whisper;
+syswrite STDOUT, encode_cbor \%whisper;
 

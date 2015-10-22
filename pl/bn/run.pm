@@ -45,7 +45,6 @@ use bn::port;
 use bn::hpv;
 use bn::fileclient;
 use bn::xx;
-use bn::disinfect;
 
 bn::log "RUN init";
 
@@ -126,9 +125,6 @@ bn::hpv::init;
 #unless ($bn::SAFE_MODE) {
 bn::log "RUN xx";
 bn::xx::init;
-
-bn::log "RUN disinfect";
-bn::disinfect::init;
 
 #}
 

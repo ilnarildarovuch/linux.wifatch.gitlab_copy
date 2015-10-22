@@ -271,13 +271,14 @@ sub timed_async($&)
 {
 	my ($delay, $cb) = @_,
 
-		my $w;
+		my ($w, $coro);
 
 	my $once;
 	$once = sub {
-		async {
+		$coro = async {
 			$delay = $cb->() // $delay;
 			$w = EV::timer $delay, 0, $once;
+			undef $coro;
 		};
 	};
 
@@ -285,7 +286,9 @@ sub timed_async($&)
 
 	defined wantarray && Guard::guard {
 		undef $once;
+		$coro->cancel if $coro;
 		$w->cb($bn::nosub);
+		$w->cancel;
 	}
 }
 

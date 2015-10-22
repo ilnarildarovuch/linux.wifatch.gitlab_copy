@@ -433,7 +433,7 @@ sub readall_
 		$len = 0xffffffff;
 	}
 
-	$self->wpkt(pack "C x3 L$self->{endian}", 18, $len);
+	$self->wpack("C x3 L", 18, $len);
 
 	$self->{rq}->put(
 		sub {
@@ -634,7 +634,7 @@ sub sha3_256_
 	$len //= 0xffffffff;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt(pack "C C x2 L$self->{endian}", 24, 1, $len);    # 1 = keccak, vs. sha3
+	$self->wpack("C C x2 L", 24, 1, $len);    # 1 = keccak, vs. sha3
 	$self->{rq}->put(
 		sub {
 			$cb->($self->rpkt);
@@ -667,7 +667,7 @@ sub fnv32a_
 	}
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt(pack "C x3 L$self->{endian}", 17, $len);
+	$self->wpack("C x3 L", 17, $len);
 	$self->{rq}->put(
 		sub {
 			$cb->(unpack "L$self->{endian}", $self->rpkt);

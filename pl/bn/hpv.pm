@@ -114,6 +114,8 @@ sub active_connect
 				@ps =
 					unpack "(a6)*",
 					eval {$::PL->("seeds")} . eval {$bn::xx::PL[1]->("seeds")};
+
+				last unless @ps;    # should not normally happen, but better avoid a crash
 			}
 
 			if (0) {

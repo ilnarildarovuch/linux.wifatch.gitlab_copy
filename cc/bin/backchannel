@@ -70,7 +70,6 @@ async {
 				$xx->add(ver => $minpl);
 				$xx->add_seq;
 				$xx->add(nodes => join "", map bm::meta::str2id $_, keys %pool);
-				$xx->add(storage => join "", map bm::meta::str2id $_, split / /, bm::sql::getenv "storage");
 
 				$xx = $xx->as_string;
 				$xx = bm::file::string $xx;

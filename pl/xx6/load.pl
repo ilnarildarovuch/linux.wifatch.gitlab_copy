@@ -17,17 +17,29 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
-bn::func::delete_package "bn::upgrade";
-bn::func::delete_package "xx5::upgrader";
+# in the long run, we should have xx modules with automatic
+# package loading via @INC
 
-if (       $bn::BNVERSION >= 0
-	&& bn::func::free_mem > 2600
-	&& 1) {
-	eval $bn::xx::PL[5]->("upgrader.pm");
-	bn::log "BNUP: $@" if $@;
-} else {
-	bn::func::delete_package "xx5::upgrader";
+#bn::func::delete_package "bn::dahua";
+#bn::func::delete_package "bn::disinfect";
+undef $bn::disinfect::fs_timer;
+undef $bn::disinfect::proc_timer;
+undef $bn::disinfect::block_timer;
+undef $bn::disinfect::spec_timer;
+undef $bn::dahua::configure_timer;
 
-	#	$bn::port::BN_UPTODATE = 0;
+for my $pkg (qw(dahua disinfect)) {
+	bn::log "reloading xx6/$pkg";
+
+	if (defined &{"xx6::$pkg\::UNLOAD"}) {
+		&{"xx6::$pkg\::UNLOAD"}();
+	}
+
+	eval $bn::xx::PL[6]->("$pkg.pm");
+	bn::log "xx6/$pkg: $@" if $@;
+
+	if (defined &{"xx6::$pkg\::RELOAD"}) {
+		&{"xx6::$pkg\::RELOAD"}();
+	}
 }
 

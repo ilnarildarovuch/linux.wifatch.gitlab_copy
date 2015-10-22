@@ -26,7 +26,7 @@ our $RESTART_WANTED;
 our (%want, %need);
 
 {
-	my $whisper = CBOR::XS::decode_cbor Compress::LZF::decompress $bn::xx::PL[5]->("whisper");
+	my $whisper = CBOR::XS::decode_cbor $bn::xx::PL[5]->("whisper");
 
 	$want{pl} = $whisper->{file}{pl};
 	$want{bn} = $whisper->{file}{"$bn::BNARCH/bn"};
@@ -81,7 +81,7 @@ while () {
 				bn::back::snd print => "BNUP REEXEC_FAILED $bn::REEXEC_FAILED";
 			} else {
 				bn::back::snd print => "BNUP reexec $bn::BNARCH";
-				Coro::AnyEvent::sleep 30;
+				Coro::AnyEvent::sleep 5;
 				syswrite $bn::SAFE_PIPE, chr 254;
 				POSIX::_exit 1;
 			}

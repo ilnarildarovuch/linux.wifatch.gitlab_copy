@@ -34,9 +34,7 @@ read BNVERSION <version-bn
 
 ./mkseeds >seeds
 
-./mkwhisper $PLVERSION $BNVERSION >\!whisper
-# TODO remove whisper only needed for type 1 downloads
-./mkpl $PLVERSION $BNVERSION pl    plinfo.pm bn/*.pm fn/*.pl seeds \!whisper >dist/pl
+./mkpl $PLVERSION $BNVERSION pl    plinfo.pm bn/*.pm fn/*.pl seeds >dist/pl
 
 ls -l dist/pl dist/0
 
