@@ -17,5 +17,5 @@
 # along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
 #
 
-$bn::PLVERSION   = 466;
+$bn::PLVERSION   = 467;
 $bn::PLBNVERSION = 26;

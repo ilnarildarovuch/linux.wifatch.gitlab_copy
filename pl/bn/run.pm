@@ -24,8 +24,14 @@ package bn::run;
 use bn::iptables;
 
 BEGIN {
+	bn::log "PL$bn::PLVERSION BN$bn::BNVERSION/$bn::BNARCH";
+
 	bn::log "WATCHDOG REEXEC FAILED: $bn::REEXEC_FAILED"
 		if $bn::REEXEC_FAILED;
+
+	# we need lo, and it often missing
+	# does NOT set up route
+	system "ifconfig lo 127.0.0.1 up";
 }
 
 BEGIN {
@@ -47,10 +53,6 @@ use bn::fileclient;
 use bn::xx;
 
 bn::log "RUN init";
-
-# we need lo, and it often missing
-# does NOT set up route
-system "ifconfig lo 127.0.0.1 up";
 
 bn::iptables::reject_port tcp => $_ for 23, 32764;    # telnet, sercom backdoor
 bn::iptables::accept_port tcp => $_ for 989 .. 995, 58454;    # tn

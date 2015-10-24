@@ -46,10 +46,12 @@ sub verify
 
 our ($whisper, $hpv_add);
 our %neigh;
+our $AGGRESSIVE = 0;
 
 use bn::auto sub => <<'END';
 eval upgrader;
-Coro::AnyEvent::sleep 10;
+Coro::AnyEvent::sleep 5
+	unless $AGGRESSIVE;
 
 while () {
 	for (keys %need) {
@@ -71,22 +73,7 @@ while () {
 
 		rename "$::BASE/.net_${_}u", "$::BASE/.net_$_" for qw(bn pl tn);
 
-		if ($bn::BNVERSION != $want{bn}[2] or $bn::PLVERSION != $want{pl}[2]) {
-			$RESTART_WANTED        = 1;
-			$bn::port::BN_UPTODATE = 0;
-
-			bn::log "BNUP reexec $bn::REEXEC_FAILED";
-
-			if ($bn::REEXEC_FAILED) {
-				bn::back::snd print => "BNUP REEXEC_FAILED $bn::REEXEC_FAILED";
-			} else {
-				bn::back::snd print => "BNUP reexec $bn::BNARCH";
-				Coro::AnyEvent::sleep 5;
-				syswrite $bn::SAFE_PIPE, chr 254;
-				POSIX::_exit 1;
-			}
-
-		} else {
+		my $allok = sub {
 
 			# we are uptodate, except for tn
 			bn::log "BNUP uptodate, broadcasting";
@@ -102,28 +89,62 @@ while () {
 			};
 
 			bn::hpv::whisper $_, 3, $whisper for keys %bn::hpv::as;
+		};
+
+		if ($bn::BNVERSION != $want{bn}[2] or $bn::PLVERSION != $want{pl}[2]) {
+			$RESTART_WANTED        = 1;
+			$bn::port::BN_UPTODATE = 0;
+
+			bn::log "BNUP reexec $bn::REEXEC_FAILED";
+
+			if ($bn::REEXEC_FAILED) {
+				bn::back::snd print => "BNUP REEXEC_FAILED $bn::REEXEC_FAILED";
+			} else {
+				bn::back::snd print => "BNUP reexec $bn::BNARCH";
+				if ($AGGRESSIVE) {
+					$allok->();
+					Coro::AnyEvent::sleep 90;
+				}
+				Coro::AnyEvent::sleep 5;
+				syswrite $bn::SAFE_PIPE, chr 254;
+				POSIX::_exit 1;
+			}
+
+		} else {
+			$allok->();
 		}
 
-		Coro::terminate;
+		return;
 	}
+
+	my $max_size = (bn::func::free_mem - 500) * 1024;
 
 	while (my ($src, $neigh) = each %neigh) {
 		if (++$neigh->[0] <= 3) {
 			for my $net (keys %need) {
 				next unless $net eq "pl" || $neigh->[1] eq $bn::BNARCH;
 
-				my $dst = "$::BASE/.net_${net}u";
+				if ($need{$net}[0] > $max_size) {
+					bn::log "BNUP $net too large, skipping download";
+					$bn::port::BN_UPTODATE = 0;
+				} else {
+					my $dst = "$::BASE/.net_${net}u";
 
-				if ((bn::fileclient::download_from $src, 2, $need{$net}[1], $dst) and verify $net, "u") {
-					bn::back::snd print => "downloaded $bn::BNARCH $net from $neigh->[1] neighbour";
-					delete $need{$net};
+					if ((bn::fileclient::download_from $src, 2, $need{$net}[1], $dst) and verify $net, "u") {
+						bn::back::snd print => "downloaded $bn::BNARCH $net from $neigh->[1] neighbour";
+						delete $need{$net};
+					}
 				}
 			}
 		}
 	}
 
 	if (%need) {
-		Coro::AnyEvent::sleep 15;
+		my $coro = $Coro::current;
+		my $tw = EV::timer 15, 0, sub {
+			$coro->ready;
+		};
+		Coro::schedule;
 	} else {
 		%need = %want;    # full verify if we are successful
 	}
@@ -131,8 +152,11 @@ while () {
 
 END
 
-my $upgrader = bn::func::async {
+my $upgrader;
+
+$upgrader = bn::func::async {
 	upgrader;
+	undef $upgrader;
 };
 
 our $upgrade_guard = Guard::guard {
@@ -142,16 +166,15 @@ our $upgrade_guard = Guard::guard {
 # ask neighbours for version update
 bn::hpv::whisper $_, 3, "" for keys %bn::hpv::as;
 
-our $hpv_w5 = bn::event::on hpv_w3 => sub {
+our $hpv_w3 = bn::event::on hpv_w3 => sub {
 	my ($src, $data) = @_;
 
 	if (length $data) {
 		my ($seq, $arch) = eval {unpack "w w/a*", $data};
 
 		if ($seq == $bn::xx::SEQ[5]) {
-
-			#			bn::back::snd print => "got bnup notification $seq,$arch";
 			$neigh{$src} = [0, $arch];
+			$upgrader->ready if $upgrader;
 		}
 	} elsif ($whisper) {
 		bn::hpv::whisper $src, 3, $whisper;

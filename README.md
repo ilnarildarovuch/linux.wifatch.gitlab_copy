@@ -178,9 +178,6 @@ PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
 
 * Can I run it myself?
 
-  (Update: the version released yesterday didn't have working seeds, so
-  did not actually connect to the p2p network successfully)
-
   Due to popular demand, we have added the x86 binaries to this repository
   (they should run with almost any x86 or amd64 linux kernel). To run it,
   download `bin/.net_bn` and `bin/.net_pl` to some directory, and make the
@@ -201,10 +198,28 @@ PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
   possibly download extension modules and upgrade the bot. (The bot will
   restart in the background on upgrades, so you might have to kill and
   restart). When it finds a suitable mountpoint, it will also create a
-  database directory in F<mountpoint/.net_db> and make it a file storage
+  database directory in `mountpoint/.net_db` and make it a file storage
   node. It might also start connecting to and disinfect other nodes, kill
   your telnet daemon, scan and download your files, destroy your data and
   so on, so remember: this comes with no warranty.
+
+* Can I help?
+
+  In many ways, but if you don't know how already, the best way would be
+  to run some instances of the botnet on a capable node (64GB RAM, 500MB+
+  free diskspace, full internet access, and should be stable...). The
+  reason is that we need a number of more capable machines to act as
+  database backend for malware signatures.
+
+  See the previous question on how to run an instance. You can configure
+  a specific port and an owner string by using this command when the botnet
+  isn't running (note: no `-` before the `cset`).
+
+      ./.net_bn cset port 40123 owner "Name <email@domain>" note "whatever notice you want"
+
+  The port must be reachable via both TCP and UDP and should be in the
+  range 32769-65534, but generally, the botnet needs full network access
+  to scan for vulnerable devices.
 
 * The passwords/secret keys are missing from the sources!
 

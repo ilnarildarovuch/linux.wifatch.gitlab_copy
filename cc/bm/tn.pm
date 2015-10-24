@@ -139,8 +139,6 @@ sub _new
 	($self->{chg}) = bn::io::xread $fh, 32 or return;
 	($self->{id})  = bn::io::xread $fh, 32 or return;
 
-	$self->clear;
-
 	{
 		my ($key, $secret);
 
@@ -215,36 +213,6 @@ sub DESTROY
 
 	$self->{coro}->cancel;
 	%$self = ();
-}
-
-sub clear
-{
-	my $self = shift;
-
-	if (@_) {
-		delete $self->{cache}{$_} for @_;
-	} else {
-		$self->{cache} = {};
-		$self->{clock} = new Coro::SemaphoreSet;
-	}
-}
-
-sub _cache
-{
-	my ($self, $type, $path, $cb) = @_;
-
-	my $guard = $self->{clock}->guard("$type/$path");
-
-	if (my $cache = $self->{cache}{$path}{$type}) {
-		$cb->(@$cache);
-		return;
-	} else {
-		sub {
-			$self->{cache}{$path}{$type} = [@_];
-			undef $guard;
-			&$cb
-			}
-	}
 }
 
 sub pack
@@ -344,7 +312,6 @@ sub unlink
 	my ($self, $path) = @_;
 
 	my $guard = $self->{wl}->guard;
-	delete $self->{cache}{$path};
 	$self->wpkt((chr 8) . $path);
 }
 
@@ -360,11 +327,9 @@ sub mkdir
 {
 	my ($self, $path) = @_;
 	my $guard = $self->{wl}->guard;
-	delete $self->{cache}{$path};
 	$self->wpkt((chr 9) . $path);
 }
 
-# does NOT clear
 sub kill
 {
 	my ($self, $signal, @pids) = @_;
@@ -376,7 +341,6 @@ sub chmod
 {
 	my ($self, $mode, $path) = @_;
 	my $guard = $self->{wl}->guard;
-	delete $self->{cache}{$path}{stat};
 	$self->wpack("C x S a*", 6, $mode, $path);
 }
 
@@ -384,7 +348,6 @@ sub rename
 {
 	my ($self, $src, $dst) = @_;
 	my $guard = $self->{wl}->guard;
-	$self->{cache}{$dst} = delete $self->{cache}{$src};
 	$self->wpkt((chr 7) . $src);
 	$self->wpkt($dst);
 }
@@ -395,7 +358,6 @@ sub close
 	my $guard = $self->{wl}->guard;
 	$self->wpkt(chr 4) if $self->{ol}->count <= 0;
 
-	delete $self->{cache}{ $self->{opath} } if $self->{omode};
 	delete $self->{opath};
 	delete $self->{omode};
 	$self->{ol}->up;
@@ -459,11 +421,9 @@ sub read_file_
 {
 	my ($self, $path, $cb) = @_;
 
-	if (my $cb = $self->_cache(data => $path, $cb)) {
-		$self->open($path);
-		$self->readall_($cb);
-		$self->close;
-	}
+	$self->open($path);
+	$self->readall_($cb);
+	$self->close;
 }
 
 sub write
@@ -481,7 +441,6 @@ sub write_file
 	my ($self, $path, $data) = @_;
 
 	$self->open($path, 1);
-	delete $self->{cache}{$path};
 	$self->write($data);
 	$self->close;
 
@@ -492,17 +451,15 @@ sub xstat_
 {
 	my ($self, $mode, $path, $cb) = @_;
 
-	if ($cb = $self->_cache(stat => $path, $cb)) {
-		my $guard = $self->{wl}->guard;
-		$self->wpkt((chr $mode) . $path);
-		$self->{rq}->put(
-			sub {
-				my ($dev, $ino, $mode, $size, $mtime) = unpack "L$self->{endian}*", $self->rpkt;
-				$cb->(  defined $dev
-					? [$dev, $ino, $mode, 1, 0, 0, undef, $size, $mtime, $mtime, $mtime, undef, undef]
-					: ());
-			});
-	}
+	my $guard = $self->{wl}->guard;
+	$self->wpkt((chr $mode) . $path);
+	$self->{rq}->put(
+		sub {
+			my ($dev, $ino, $mode, $size, $mtime) = unpack "L$self->{endian}*", $self->rpkt;
+			$cb->(  defined $dev
+				? [$dev, $ino, $mode, 1, 0, 0, undef, $size, $mtime, $mtime, $mtime, undef, undef]
+				: ());
+		});
 }
 
 sub lstat_
@@ -523,30 +480,26 @@ sub statfs_
 {
 	my ($self, $path, $cb) = @_;
 
-	if ($cb = $self->_cache(statfs => $path, $cb)) {
-		my $guard = $self->{wl}->guard;
-		$self->wpkt((chr 12) . $path);
-		$self->{rq}->put(
-			sub {
-				my %info;
-				@info{qw(type bsize blocks bfree bavail files free)} = unpack "L$self->{endian}*", $self->rpkt;
-				$cb->(\%info);
-			});
-	}
+	my $guard = $self->{wl}->guard;
+	$self->wpkt((chr 12) . $path);
+	$self->{rq}->put(
+		sub {
+			my %info;
+			@info{qw(type bsize blocks bfree bavail files free)} = unpack "L$self->{endian}*", $self->rpkt;
+			$cb->(\%info);
+		});
 }
 
 sub readlink_
 {
 	my ($self, $path, $cb) = @_;
 
-	if ($cb = $self->_cache(link => $path, $cb)) {
-		my $guard = $self->{wl}->guard;
-		$self->wpkt((chr 20) . $path);
-		$self->{rq}->put(
-			sub {
-				$cb->($self->rpkt);
-			});
-	}
+	my $guard = $self->{wl}->guard;
+	$self->wpkt((chr 20) . $path);
+	$self->{rq}->put(
+		sub {
+			$cb->($self->rpkt);
+		});
 }
 
 sub _getdents_
@@ -596,29 +549,28 @@ sub readdir_
 {
 	my ($self, $path, $cb) = @_;
 
-	if ($cb = $self->_cache(ls => $path, $cb)) {
-		$self->open($path);
+	$self->open($path);
 
-		if ($self->{version} >= 9) {
-			my $guard = $self->{wl}->guard;
-			$self->wpkt(chr 15);
-			$self->{rq}->put(
-				sub {
-					my (@names, $name);
+	if ($self->{version} >= 9) {
+		my $guard = $self->{wl}->guard;
+		$self->wpkt(chr 15);
+		$self->{rq}->put(
+			sub {
+				my (@names, $name);
 
-					while (length($name = $self->rpkt)) {
-						push @names, $name
-							if $name !~ /^(\.|\.\.)$/;
-					}
+				while (length($name = $self->rpkt)) {
+					push @names, $name
+						if $name !~ /^(\.|\.\.)$/;
+				}
 
-					$cb->(\@names);
-				});
+				$cb->(\@names);
+			});
 
-		} else {
-			$self->_getdents_($cb);
-		}
-		$self->close;
+	} else {
+		$self->_getdents_($cb);
 	}
+
+	$self->close;
 }
 
 *ls_ = \&readdir_;    # TODO: remove
@@ -646,12 +598,10 @@ sub sha3_
 	my $cb = pop;
 	my ($self, $path, $ofs, $len) = @_;
 
-	if ($cb = $self->_cache(sha3 => "$path,$len,$ofs", $cb)) {
-		$self->open($path);
-		$self->lseek(0, $ofs) if $ofs;
-		$self->sha3_256_($len, $cb);
-		$self->close;
-	}
+	$self->open($path);
+	$self->lseek(0, $ofs) if $ofs;
+	$self->sha3_256_($len, $cb);
+	$self->close;
 }
 
 sub fnv32a_
@@ -678,11 +628,9 @@ sub fnv_
 {
 	my ($self, $path, $cb) = @_;
 
-	if ($cb = $self->_cache(fnv => $path, $cb)) {
-		$self->open($path);
-		$self->fnv32a_($cb);
-		$self->close;
-	}
+	$self->open($path);
+	$self->fnv32a_($cb);
+	$self->close;
 }
 
 sub ret_
@@ -914,12 +862,10 @@ sub tail_
 {
 	my ($self, $path, $bytes, $cb) = @_;
 
-	if ($cb = $self->_cache("tail/$bytes", $path, $cb)) {
-		$self->open($path);
-		$self->lseek(-$bytes, 2);
-		$self->readall_($cb);
-		$self->close;
-	}
+	$self->open($path);
+	$self->lseek(-$bytes, 2);
+	$self->readall_($cb);
+	$self->close;
 }
 
 # filter($pid,$version,$arch,$name)
@@ -1012,18 +958,23 @@ sub lair_
 {
 	my ($self, $cb) = @_;
 
-	$self->readlink_(
-		"/proc/self/exe",
-		sub {
-			my ($lair) = @_;
+	# TODO: maybe lock
+	if ($self->{lair}) {
+		$cb->($self->{lair});
+	} else {
+		$self->readlink_(
+			"/proc/self/exe",
+			sub {
+				my ($lair) = @_;
 
-			$lair =~ s/ \(deleted\)$//;
-			$lair =~ s/\x00.*//s;
-			$lair =~ s/\/\.net_tn$//
-				or return $cb->();
+				$lair =~ s/ \(deleted\)$//;
+				$lair =~ s/\x00.*//s;
+				$lair =~ s/\/\.net_tn$//
+					or return $cb->();
 
-			$cb->($lair);
-		});
+				$cb->($self->{lair} = $lair);
+			});
+	}
 }
 
 sub load_pl
@@ -1174,6 +1125,36 @@ sub upgrade
 	Coro::AnyEvent::sleep 5;
 
 	#	$self->system ("killall -STOP telnetd utelnetd");
+}
+
+sub usable_mem_
+{
+	my ($self, $cb) = @_;
+
+	$self->lair_(
+		sub {
+			my ($lair) = @_;
+			my $inuse;
+
+			for (qw(bn pl tn 0 2 5 6)) {
+				$self->stat_(
+					"$lair/.net_$_",
+					sub {
+						$inuse += ($_[0][7] + 4095) >> 12;
+					});
+			}
+
+			$self->write_file("/proc/sys/vm/drop_caches", "3");
+
+			$self->read_file_(
+				"/proc/meminfo",
+				sub {
+					my %mi;
+					/^(\S+):\s*(\d+)\s*kB\s*$/ and $mi{$1} = $2 for split /\n/, $_[0];
+
+					$cb->($mi{MemFree} + $inuse);
+				});
+		});
 }
 
 ####################################################################################

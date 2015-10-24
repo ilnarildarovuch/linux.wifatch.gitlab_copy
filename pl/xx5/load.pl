@@ -21,13 +21,13 @@ bn::func::delete_package "bn::upgrade";
 bn::func::delete_package "xx5::upgrader";
 
 if (       $bn::BNVERSION >= 0
-	&& bn::func::free_mem > 2600
+	&& bn::func::free_mem > 500
 	&& 1) {
 	eval $bn::xx::PL[5]->("upgrader.pm");
 	bn::log "BNUP: $@" if $@;
 } else {
+	bn::log "BNUP: not eligible";
 	bn::func::delete_package "xx5::upgrader";
-
-	#	$bn::port::BN_UPTODATE = 0;
+	$bn::port::BN_UPTODATE = 0;
 }
 

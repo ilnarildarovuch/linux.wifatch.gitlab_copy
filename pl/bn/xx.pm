@@ -109,12 +109,12 @@ if (my $pl = plpack::load "$::BASE/.net_$i") {
 	};
 
 	if ($verchk->(pl => $bn::PLVERSION) and $verchk->(bn => $bn::BNVERSION)) {
-		bn::log "bn::xx XX$i $SEQ[$i] loading";
-
 		unload $i;
 
 		$PL[$i]  = $pl;
 		$SEQ[$i] = $pl->("seq") + 0;
+
+		bn::log "bn::xx XX$i $SEQ[$i] loading";
 
 		load_init $i, 0 unless $BOOT;
 	} else {

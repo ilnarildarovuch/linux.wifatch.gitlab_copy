@@ -32,7 +32,7 @@ our $UDP;
 our $BN_UPTODATE = 1;
 
 # info service
-bn::event::on port_connect_Ahg2Goow => sub {
+our $port_info = bn::event::on port_connect_Ahg2Goow => sub {
 	my $flags = $bn::cfg{flags} + 0;
 
 	$flags |= 0x01 if $bn::SAFE_MODE;
@@ -43,6 +43,7 @@ bn::event::on port_connect_Ahg2Goow => sub {
 	#	$flags |= 0x10 if $bn::VERSION >= 2; # ecdsa_verify
 	# 0x20 # tn is running
 	$flags |= 0x40 if $BN_UPTODATE;
+	$flags |= 0x80 if $bn::REEXEC_FAILED;
 
 	my $tcp = $bn::cfg{speedtest};
 
