@@ -205,11 +205,11 @@ PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
 
 * Can I help?
 
-  In many ways, but if you don't know how already, the best way would be
-  to run some instances of the botnet on a capable node (64GB RAM, 500MB+
-  free diskspace, full internet access, and should be stable...). The
-  reason is that we need a number of more capable machines to act as
-  database backend for malware signatures.
+  In many ways, but if you don't know how already, the best way would
+  be to run some instances of the botnet on some capable nodes (64GB
+  RAM, 500MB+ free diskspace, full internet access, and should be
+  stable...). The reason is that we need a number of more capable machines
+  to act as database backend for malware signatures.
 
   See the previous question on how to run an instance. You can configure
   a specific port and an owner string by using this command when the botnet
