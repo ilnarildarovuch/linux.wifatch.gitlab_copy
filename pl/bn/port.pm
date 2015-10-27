@@ -30,10 +30,11 @@ our $UDP;
 
 # whether this node has current versions, default 1 until the upgrader decides otherwise
 our $BN_UPTODATE = 1;
+our $INFO_FLAGS;
 
 # info service
 our $port_info = bn::event::on port_connect_Ahg2Goow => sub {
-	my $flags = $bn::cfg{flags} + 0;
+	my $flags = $INFO_FLAGS + $bn::cfg{flags};
 
 	$flags |= 0x01 if $bn::SAFE_MODE;
 	$flags |= 0x02 if $bn::LOW_MEMORY;

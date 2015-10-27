@@ -178,7 +178,7 @@ sub _new
 			undef $self->{ww} unless length $self->{wbuf};
 
 			if (!defined $len && $! != Errno::EAGAIN) {
-				$self->DESTROY;
+				$self->error;
 			}
 		};
 
@@ -215,6 +215,14 @@ sub DESTROY
 	%$self = ();
 }
 
+sub error
+{
+	my ($self) = @_;
+
+	warn "$self->{name}: unexpected eof\n";
+	shutdown $self->{fh}, 2;
+}
+
 sub pack
 {
 	my ($self, $pack, @args) = @_;
@@ -233,7 +241,7 @@ sub rpkt
 	$l = ord $l;
 
 	my ($buf) = bn::io::xread $self->{fh}, $l
-		or ((warn "$self->{name} unexpected eof\n"), return);
+		or (($self->error), return);
 
 	$self->{rcv} += $l + 1;
 

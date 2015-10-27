@@ -51,7 +51,7 @@ our $np       = 100;         # passive list
 our $mp       = 0.5;         # share $np to keep despite connection problems
 our $ka       = 3;           # active nodes in shuffle
 our $kp       = 7;           # passive nodes in shuffle
-our $shuffle0 = 600;         # min shuffle interval
+our $shuffle0 = 3600;        # min shuffle interval
 our $shuffle1 = 7200;        # shuffle interval dispersion
 
 our $join_timer;
@@ -87,6 +87,32 @@ sub add_passive
 
 	@ps{@ids} = ();
 }
+
+my @shuffle_list;
+my $shuffle_adder;
+
+use bn::auto sub => <<'END';
+eval shuffle_add_passive;
+my ($id) = @_;
+
+push @shuffle_list, $id;
+shift @shuffle_list while @shuffle_list > 4;
+
+$shuffle_adder ||= bn::func::async {
+	while (my $id = shift @shuffle_list) {
+		{
+			my ($fh) = bn::func::connect_to $id, 10;
+			bn::log "hpv shuffler " . !$fh;
+			add_passive $id if $fh;
+		}
+
+		Coro::AnyEvent::sleep $shuffle0;
+	}
+
+	undef $shuffle_adder;
+};
+
+END
 
 sub active_connect
 {
@@ -233,6 +259,99 @@ sub random_key(\%$)
 	@kv ? $kv[rand @kv] : ();
 }
 
+sub connection_handler($$)
+{
+	my ($fh, $id, $buf) = @_;
+
+	sub {
+		if (0 < sysread $fh, $buf, 1024, length $buf) {
+			while () {
+				my ($cmd, $data) = ord $buf;
+
+				# this check always to be done, in case $buf empty
+				$cmd < length $buf
+					or return;    # last
+
+				if ($cmd) {
+					($cmd, $data) = unpack "x Ca*", substr $buf, 0, $cmd + 1, "";
+
+				} elsif (length $buf) {    # 413
+					($cmd = unpack "x n", $buf) // return;    # last
+
+					if ($cmd + 3 > length $buf) {
+						return if $cmd <= 2048;           # last
+
+						bn::log "hpv packet size $cmd exceeded " . bn::func::id2str $id;
+						return del_connection $id, 1;
+					}
+
+					($cmd, $data) = unpack "xxx Ca*", substr $buf, 0, $cmd + 3, "";
+				} else {
+					return;                                   # last
+				}
+
+				if ($cmd == M_FORW_JOIN) {
+					my ($hops, $id) = unpack "Ca6", $data;
+
+					++$hops;
+
+					if ($hops >= $arwl && %as < $nb) {
+						bn::func::async {
+							connect_to $id, H_NEIGHBOR_LO;
+						};
+					} else {
+						if ($hops == $prwl) {
+							add_passive $id;
+						}
+
+						if ($hops < $mrwl) {
+							if (my $next = random_key %as, $id) {
+								sndpkt $next, pack "CCa6", M_FORW_JOIN, $hops, $id;
+							}
+						}
+					}
+
+				} elsif ($cmd == M_BROADCAST) {
+					(my $ttl, my $type, $data) = unpack "CCa*", $data;
+					&flood($id, $type, $data, $ttl);
+
+				} elsif ($cmd == M_WHISPER) {
+					my $type = ord $data;
+					bn::event::inject "hpv_w$type" => $id, substr $data, 1;
+
+				} elsif ($cmd == M_SHUFFLE) {
+					my (@ids) = unpack "(a6)*", $data;
+
+					bn::log "hpv shuffle " . scalar @ids;
+
+					shuffle_add_passive pop @ids;
+
+					if (@ids) {
+						if (my $next = random_key %as, $id) {
+							sndpkt $next, pack "C(a6)*", M_SHUFFLE, @ids;
+						}
+					}
+
+				} elsif ($cmd == M_DISCONNECT) {
+					bn::log "hpv disconnect " . bn::func::id2str $id;
+					return del_connection $id;
+
+				} elsif ($cmd == M_PING) {
+
+					# nop
+
+				} else {
+					bn::log "hpv protocol error " . bn::func::id2str $id;
+					return del_connection $id, 1;
+				}
+			}
+		} else {
+			bn::log "hpv eof " . bn::func::id2str $id;
+			del_connection $id, 1;
+		}
+		}
+}
+
 use bn::auto sub => <<'END';
 eval add_connection;
 my ($fh, $id) = @_;
@@ -245,95 +364,7 @@ if (keys %as >= $nb) {
 	del_connection $as[rand @as];
 }
 
-my $buf;
-
-my $w = AE::io $fh, 0, sub {
-	if (0 < sysread $fh, $buf, 1024, length $buf) {
-		while () {
-			my ($cmd, $data) = ord $buf;
-
-			# this check always to be done, in case $buf empty
-			$cmd < length $buf
-				or return;    # last
-
-			if ($cmd) {
-				($cmd, $data) = unpack "x Ca*", substr $buf, 0, $cmd + 1, "";
-
-			} elsif (length $buf) {    # 413
-				($cmd = unpack "x n", $buf) // return;    # last
-
-				if ($cmd + 3 > length $buf) {
-					return if $cmd <= 2048;           # last
-
-					bn::log "hpv packet size $cmd exceeded " . bn::func::id2str $id;
-					return del_connection $id, 1;
-				}
-
-				($cmd, $data) = unpack "xxx Ca*", substr $buf, 0, $cmd + 3, "";
-			} else {
-				return;                                   # last
-			}
-
-			if ($cmd == M_FORW_JOIN) {
-				my ($hops, $id) = unpack "Ca6", $data;
-
-				++$hops;
-
-				if ($hops >= $arwl && %as < $nb) {
-					bn::func::async {
-						connect_to $id, H_NEIGHBOR_LO;
-					};
-				} else {
-					if ($hops == $prwl) {
-						add_passive $id;
-					}
-
-					if ($hops < $mrwl) {
-						if (my $next = random_key %as, $id) {
-							sndpkt $next, pack "CCa6", M_FORW_JOIN, $hops, $id;
-						}
-					}
-				}
-
-			} elsif ($cmd == M_BROADCAST) {
-				(my $ttl, my $type, $data) = unpack "CCa*", $data;
-				&flood($id, $type, $data, $ttl);
-
-			} elsif ($cmd == M_WHISPER) {
-				my $type = ord $data;
-				bn::event::inject "hpv_w$type" => $id, substr $data, 1;
-
-			} elsif ($cmd == M_SHUFFLE) {
-				my ($hops, @ids) = unpack "(a6)*", $data;
-
-				bn::log "hpv shuffle " . scalar @ids;
-
-				add_passive pop @ids;
-
-				if (@ids) {
-					if (my $next = random_key %as, $id) {
-						sndpkt $next, pack "Ca6", M_SHUFFLE, $id;
-					}
-				}
-
-			} elsif ($cmd == M_DISCONNECT) {
-				bn::log "hpv disconnect " . bn::func::id2str $id;
-				return del_connection $id;
-
-			} elsif ($cmd == M_PING) {
-
-				# nop
-
-			} else {
-				bn::log "hpv protocol error " . bn::func::id2str $id;
-				return del_connection $id, 1;
-			}
-		}
-	} else {
-		bn::log "hpv eof " . bn::func::id2str $id;
-		del_connection $id, 1;
-	}
-};
+my $w = AE::io $fh, 0, connection_handler $fh, $id;
 
 $as{$id} = [$fh, $w];
 bn::log "hpv add " . bn::func::id2str $id;

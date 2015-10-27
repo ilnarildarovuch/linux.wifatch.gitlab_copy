@@ -339,7 +339,7 @@ int main(int argc, char *argv[])
                                                   }
                                                   break;
 
-                                          case 12:
+                                          case 12:     // statfs
                                                   {
                                                           struct statfs sfsbuf;
                                                           int l = statfs(buffer + 1, &sfsbuf);

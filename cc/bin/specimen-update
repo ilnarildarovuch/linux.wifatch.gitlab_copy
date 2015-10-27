@@ -63,6 +63,8 @@ bin:
 			if (length $o_data >= length $data) {
 				if ($data eq substr $o_data, 0, length $data) {
 					printf "%s is prefix of %s\n", $bin, bm::specimen::pathbin $o_cat, $o_sha256;
+					my $sha3 = Digest::SHA3::sha3_256 $data;
+					unlink "specimen/sha3_fetch/" . unpack "H*", $sha3;    # TODO: temp hack
 					unlink bm::specimen::path $cat, $sha256, $_ for qw(meta bin upx);
 					next bin;
 				}
@@ -76,11 +78,13 @@ bin:
 		}
 
 		print "$bin: new\n";
+		my $sha3 = Digest::SHA3::sha3_256 $data;
+		unlink "specimen/sha3_fetch/" . unpack "H*", $sha3;    # TODO: temp hack
 		sql_exec
 			"insert into specimen (sha256, sha3_1k, sha3, fnv_1k, fnv, size, category) values (?, ?, ?, ?, ?, ?, ?)",
 			(Digest::SHA::sha256 $data),
 			$sha3_1k,
-			(Digest::SHA3::sha3_256 $data),
+			$sha3,
 			(bm::file::fnv32a substr $data, 0, 1024),
 			(bm::file::fnv32a $data),
 			length $data,

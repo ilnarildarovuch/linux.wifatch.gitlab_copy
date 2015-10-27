@@ -41,8 +41,7 @@ use bm::meta;
 Coro::State::cctx_stacksize 32768;
 
 our $poolsize = $ARGV[0] || 20;
-our $minpool  = $poolsize - 10;
-our $minpl    = bm::sql::getenv "xxpl";
+our $minpool = $poolsize - 10;
 our %pool;
 
 my $last_update = EV::now + 15;
@@ -67,7 +66,6 @@ async {
 				$pool_dirty = 0;
 
 				my $xx = new bm::plpacker name => "xx4";
-				$xx->add(ver => $minpl);
 				$xx->add_seq;
 				$xx->add(nodes => join "", map bm::meta::str2id $_, keys %pool);
 

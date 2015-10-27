@@ -68,10 +68,10 @@ sub add_pl
 		(.*?)
 		(?=\nEND\n)
 	}{
-		$1 . $bm::meta::STRIPPER->strip ($2)
+		$1 . bm::meta::strip $2
 	}smegx;
 
-	$pl = $bm::meta::STRIPPER->strip($pl);
+	$pl = bm::meta::strip $pl;
 
 	$self->add($name, $pl);
 }
