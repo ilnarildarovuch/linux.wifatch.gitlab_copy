@@ -88,8 +88,8 @@ sub add_passive
 	@ps{@ids} = ();
 }
 
-my @shuffle_list;
-my $shuffle_adder;
+our @shuffle_list;
+our $shuffle_adder;
 
 use bn::auto sub => <<'END';
 eval shuffle_add_passive;

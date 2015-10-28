@@ -35,6 +35,7 @@ our @CATEGORY = qw(
 	dynamic
 	innocent
 	suspicious
+	notelf
 );
 
 sub cat_is_malware($)

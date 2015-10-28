@@ -179,6 +179,7 @@ sub _new
 
 			if (!defined $len && $! != Errno::EAGAIN) {
 				$self->error;
+				undef $self->{ww};
 			}
 		};
 
@@ -218,6 +219,13 @@ sub DESTROY
 sub error
 {
 	my ($self) = @_;
+
+	if ($self->{error} > 1000) {
+		use Carp;
+		Carp::cluck "error count over 9000";
+	}
+
+	return if $self->{error}++;
 
 	warn "$self->{name}: unexpected eof\n";
 	shutdown $self->{fh}, 2;

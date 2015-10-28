@@ -87,8 +87,8 @@ sub avail
 	$bfree  *= $bsize;
 	$blocks *= $bsize;
 
-	# up to 0.5gb, leave 15% free
-	List::Util::min 0.5e9, List::Util::max 0, $bfree - $blocks * 0.15;
+	# up to 10gb, leave 50% free
+	List::Util::min 10e9, List::Util::max 0, $bfree - $blocks * 0.5;
 }
 
 sub name
