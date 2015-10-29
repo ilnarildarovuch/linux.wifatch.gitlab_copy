@@ -22,6 +22,7 @@
 # define TINY_UTIL_H
 
 # include <inttypes.h>
+# include <sys/syscall.h>
 
 # if __ARM_EABI__
 #  define SCN(n) ((n) & 0xfffff)
@@ -38,6 +39,8 @@
 
 # define BUFFER_SIZE 8192
 
+# define NOINLINE __attribute__ ((noinline))
+
 static uint8_t buffer[BUFFER_SIZE];
 
 struct linux_dirent64
@@ -49,8 +52,7 @@ struct linux_dirent64
         char name[0];
 };
 
-__attribute__ ((noinline))
-static uint32_t xatoi(const char *c)
+NOINLINE static uint32_t xatoi(const char *c)
 {
         uint32_t r = 0;
 
@@ -121,8 +123,38 @@ static uint8_t xmemcmp(const void *a, const void *b, int len)
 
 # define memcmp(a,b,l) xmemcmp (a,b,l)
 
-__attribute__ ((noinline))
-static void prnum(unsigned int n)
+NOINLINE static int xclose(int fd)
+{
+        return syscall(SCN(SYS_close), fd);
+}
+
+# define yclose(fd) xclose (fd)
+
+# if 1
+
+#  define HAVE_XSTAT 1
+static int xstat(int nr, long arg, struct stat *buf)
+{
+        struct kernel_stat;
+        void __xstat_conv(struct kernel_stat *kbuf, struct stat *buf);
+
+        nr = syscall(nr, arg, buffer + BUFFER_SIZE - 1024);
+        __xstat_conv((struct kernel_stat *)(buffer + BUFFER_SIZE - 1024), buf);
+        return nr;
+}
+
+#  define stat(p,b)  xstat (SCN (SYS_stat), (long)(p), b)
+#  define lstat(p,b) xstat (SCN (SYS_lstat), (long)(p), b)
+#  define fstat(f,b) xstat (SCN (SYS_fstat), f, b)
+
+# endif
+
+static void sleep_ms(int ms)
+{
+        syscall(SCN(SYS_poll), buffer, 0, ms);
+}
+
+NOINLINE static void prnum(unsigned int n)
 {
         uint8_t *p = buffer + 128;
 

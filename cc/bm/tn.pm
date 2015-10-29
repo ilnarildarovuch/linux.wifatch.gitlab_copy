@@ -22,6 +22,8 @@ package bm::tn;
 # for port 0x2222 testing
 # ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccoemcbodfiafgjeodnnlbabeoejgllhnofbfcddalbcjgdgcanceenkejfmkakbkpcccc
 
+sub TRACE() {0}
+
 use strict;
 
 use Errno ();
@@ -101,6 +103,27 @@ sub format_credarg($$$)
 	$arg
 }
 
+# get secrte for id
+sub secret($)
+{
+	my ($id) = @_;
+
+	my ($key, $secret);
+
+	if (defined(my $secret1 = sql_fetch "select secret1 from node where id = ?", $id)) {
+		$key    = $KEY_NODE;
+		$secret = $secret1;
+	} else {
+		$key    = $KEY_FIXED;
+		$secret = $id;
+	}
+
+	$secret = Digest::KeccakOld::sha3_256 $secret . $key;
+	$secret = Digest::KeccakOld::sha3_256 $key . $secret;
+
+	$secret
+}
+
 sub new
 {
 	my ($class, $host, $port) = @_;
@@ -138,26 +161,16 @@ sub _new
 
 	($self->{chg}) = bn::io::xread $fh, 32 or return;
 	($self->{id})  = bn::io::xread $fh, 32 or return;
+	$self->{secret} = secret $self->{id};
 
-	{
-		my ($key, $secret);
+	setsockopt $fh, Socket::IPPROTO_TCP, Socket::TCP_NODELAY, pack "i", 1;
 
-		if (defined(my $secret1 = sql_fetch "select secret1 from node where id = ?", $self->{id})) {
-			$key    = $KEY_NODE;
-			$secret = $secret1;
-		} else {
-			$key    = $KEY_FIXED;
-			$secret = $self->{id};
-		}
-
-		$secret = Digest::KeccakOld::sha3_256 $secret . $key;
-		$secret = Digest::KeccakOld::sha3_256 $key . $secret;
-
-		bn::io::xwrite $fh, pack "C/a", Digest::KeccakOld::sha3_256 "$self->{chg}$self->{id}$secret";
-	}
+	bn::io::xwrite $fh, pack "C/a", Digest::KeccakOld::sha3_256 "$self->{chg}$self->{id}$self->{secret}";
 
 	($self->{version}, $self->{arch}) = split /\//, $self->rpkt;
 	$self->{endian} = $self->rpkt eq "\x11\x22\x33\x44" ? ">" : "<";
+
+	warn "$self->{name} $self->{version}/$self->{arch}/$self->{endian}\n" if TRACE;
 
 	return undef unless length $self->{arch};
 	return undef unless length $self->{version};
@@ -178,8 +191,8 @@ sub _new
 			undef $self->{ww} unless length $self->{wbuf};
 
 			if (!defined $len && $! != Errno::EAGAIN) {
-				$self->error;
 				undef $self->{ww};
+				$self->error;
 			}
 		};
 
@@ -214,6 +227,32 @@ sub DESTROY
 
 	$self->{coro}->cancel;
 	%$self = ();
+}
+
+our $ARCH_CONST;
+
+sub const
+{
+	my ($self, $set) = @_;
+
+	# arch-const.json contains potwntially architecture-specific
+	# constants such as EPERM, O_TRUNC, S_IFREG or DT_DIR.
+	$ARCH_CONST ||= do {
+		require JSON::XS;
+		open my $fh, "<", "$bm::file::BASE/arch-const.json"
+			or die "$bm::file::BASE/arch-const.json: $!";
+		sysread $fh, my $json, -s $fh;
+		JSON::XS::decode_json($json);
+	};
+
+	my $const = $ARCH_CONST->{ $self->{arch} }
+		or die "$self->{name}: $self->{arch}: no arch constants\n";
+
+	my $value;
+
+	$value |= $const->{$_} for split /\s*\|\s*/, $set;
+
+	$value
 }
 
 sub error
@@ -251,6 +290,11 @@ sub rpkt
 	my ($buf) = bn::io::xread $self->{fh}, $l
 		or (($self->error), return);
 
+	if (TRACE) {
+		(my $buf2 = $buf) =~ s/[^\x20-\x7e]/./g;
+		warn "$self->{name} > ", (unpack "H*", $buf), " $buf2\n";
+	}
+
 	$self->{rcv} += $l + 1;
 
 	$buf
@@ -271,6 +315,8 @@ sub wpkt
 	Carp::confess "$self->{name} packet too long (" . (unpack "H*", $data) . ")"
 		if 254 < length $data;
 
+	warn "$self->{name} < ", (unpack "H*", $data), "\n" if TRACE;
+
 	$_[0]->_send(pack "C/a", $data);
 }
 
@@ -279,6 +325,31 @@ sub wpack
 	my ($self, $pack, @args) = @_;
 
 	$self->wpkt($self->pack($pack, @args));
+}
+
+sub wcmd
+{
+	my ($self, $pack, @args) = @_;
+
+	if (TRACE) {
+		my @args2 = @args;
+
+		$args2[0] = (qw(
+				exit shell ropen wopen close kill chmod rename unlink mkdir
+				wget lstat statfs rexec rcmd getdents lseek fnv32a fread fwrite
+				readlink ret chdir stat sha3 sleep open
+				))[$args2[0]];
+
+		s/[^\x20-\x7e]/./g for @args2;
+		warn "$self->{name} < sending (@args2)\n";
+		$self->{rq}->put(
+			sub {
+				warn "$self->{name} > expecting (@args2)\n";
+			});
+	}
+
+	$self->wpkt($self->pack($pack, @args));
+
 }
 
 sub shell
@@ -328,43 +399,46 @@ sub unlink
 	my ($self, $path) = @_;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr 8) . $path);
+	$self->wcmd("C a*", 8, $path);
 }
 
 sub chdir
 {
 	my ($self, $path) = @_;
 
+	$self->{version} >= 7
+		or die "$self->{name}: chdir needs tn version 7\n";
+
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr 22) . $path);
+	$self->wcmd("C a*", 22, $path);
 }
 
 sub mkdir
 {
 	my ($self, $path) = @_;
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr 9) . $path);
+	$self->wcmd("C a*", 9, $path);
 }
 
 sub kill
 {
 	my ($self, $signal, @pids) = @_;
 	my $guard = $self->{wl}->guard;
-	$self->wpack("CC xx L", 5, $signal, $_) for @pids;
+	$self->wcmd("CC xx L", 5, $signal, $_) for @pids;
 }
 
 sub chmod
 {
 	my ($self, $mode, $path) = @_;
 	my $guard = $self->{wl}->guard;
-	$self->wpack("C x S a*", 6, $mode, $path);
+	$self->wcmd("C x S a*", 6, $mode, $path);
 }
 
 sub rename
 {
 	my ($self, $src, $dst) = @_;
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr 7) . $src);
+	$self->wcmd("C a*", 7, $src);
 	$self->wpkt($dst);
 }
 
@@ -372,7 +446,7 @@ sub close
 {
 	my ($self) = @_;
 	my $guard = $self->{wl}->guard;
-	$self->wpkt(chr 4) if $self->{ol}->count <= 0;
+	$self->wcmd("C", 4) if $self->{ol}->count <= 0;
 
 	delete $self->{opath};
 	delete $self->{omode};
@@ -388,14 +462,20 @@ sub open
 	$self->{omode} = $write;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpack("Ca*", $write ? 3 : 2, $path);
+
+	if ($self->{version} < 13) {
+		$self->wcmd("C a*", $write ? 3 : 2, $path);
+	} else {
+		my $flags = $self->const($write ? "O_RDWR | O_CREAT" : "O_RDONLY");
+		$self->wcmd("C x s l a*", 26, 0600, $flags, $path);
+	}
 }
 
 sub lseek
 {
 	my ($self, $off, $mode) = @_;
 	my $guard = $self->{wl}->guard;
-	$self->wpack("C x2 C l", 16, $mode, $off);
+	$self->wcmd("C x2 C l", 16, $mode, $off);
 }
 
 sub readall_
@@ -406,12 +486,16 @@ sub readall_
 	my $guard = $self->{wl}->guard;
 	if (defined $len) {
 		$self->{version} >= 9
-			or die "$self->{host}: limited read on old tn\n";
+			or die "$self->{host}: limited readall needs tn version 9\n";
 	} else {
 		$len = 0xffffffff;
 	}
 
-	$self->wpack("C x3 L", 18, $len);
+	if ($len != 0xffffffff or $self->{version} < 12 or 1) {
+		$self->wcmd("C x3 L", 18, $len);
+	} else {
+		$self->wcmd("C", 18);
+	}
 
 	$self->{rq}->put(
 		sub {
@@ -435,10 +519,11 @@ sub pread_
 
 sub read_file_
 {
-	my ($self, $path, $cb) = @_;
+	my $cb = pop;
+	my ($self, $path, $len) = @_;
 
 	$self->open($path);
-	$self->readall_($cb);
+	$self->readall_($len, $cb);
 	$self->close;
 }
 
@@ -448,7 +533,7 @@ sub write
 
 	my $guard = $self->{wl}->guard;
 	for (my $o = 0; $o < length $data; $o += 253) {
-		$self->wpkt((chr 19) . substr $data, $o, 253);
+		$self->wcmd("C a*", 19, substr $data, $o, 253);
 	}
 }
 
@@ -468,14 +553,25 @@ sub xstat_
 	my ($self, $mode, $path, $cb) = @_;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr $mode) . $path);
+	$self->wcmd("C a*", $mode, $path);
 	$self->{rq}->put(
 		sub {
-			my ($dev, $ino, $mode, $size, $mtime) = unpack "L$self->{endian}*", $self->rpkt;
+			my $unpack = $self->{version} >= 12 ? "w*" : "L$self->{endian}*";
+			my ($dev, $ino, $mode, $size, $mtime, $uid) = unpack $unpack, $self->rpkt;
 			$cb->(  defined $dev
-				? [$dev, $ino, $mode, 1, 0, 0, undef, $size, $mtime, $mtime, $mtime, undef, undef]
+				? [$dev, $ino, $mode, 1, $uid, undef, undef, $size, $mtime, $mtime, $mtime]
 				: ());
 		});
+}
+
+sub stat_
+{
+	my ($self, $path, $cb) = @_;
+
+	$self->{version} >= 8
+		or die "$self->{name}: stat needs tn version 8\n";
+
+	$self->xstat_(23, $path, $cb);
 }
 
 sub lstat_
@@ -485,11 +581,14 @@ sub lstat_
 	$self->xstat_(11, $path, $cb);
 }
 
-sub stat_
+sub fstat_
 {
-	my ($self, $path, $cb) = @_;
+	my ($self, $cb) = @_;
 
-	$self->xstat_(23, $path, $cb);
+	$self->{version} >= 12
+		or die "$self->{name}: fstat needs tn version 12\n";
+
+	$self->xstat_(11, "", $cb);
 }
 
 sub statfs_
@@ -497,11 +596,12 @@ sub statfs_
 	my ($self, $path, $cb) = @_;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr 12) . $path);
+	$self->wcmd("C a*", 12, $path);
 	$self->{rq}->put(
 		sub {
+			my $unpack = $self->{version} >= 12 ? "w*" : "L$self->{endian}*";
 			my %info;
-			@info{qw(type bsize blocks bfree bavail files free)} = unpack "L$self->{endian}*", $self->rpkt;
+			@info{qw(type bsize blocks bfree bavail files free)} = unpack $unpack, $self->rpkt;
 			$cb->(\%info);
 		});
 }
@@ -511,7 +611,7 @@ sub readlink_
 	my ($self, $path, $cb) = @_;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr 20) . $path);
+	$self->wcmd("C a*", 20, $path);
 	$self->{rq}->put(
 		sub {
 			$cb->($self->rpkt);
@@ -523,10 +623,10 @@ sub _getdents_
 	my ($self, $cb) = @_;
 
 	$self->{version} < 9
-		or die "$self->{name}: getdents on new version";
+		or die "$self->{name}: getdents works only up to version 8";
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt(chr 15);
+	$self->wcmd("C", 15);
 	$self->{rq}->put(
 		sub {
 			my $buf = do {
@@ -569,7 +669,7 @@ sub readdir_
 
 	if ($self->{version} >= 9) {
 		my $guard = $self->{wl}->guard;
-		$self->wpkt(chr 15);
+		$self->wcmd("C", 15);
 		$self->{rq}->put(
 			sub {
 				my (@names, $name);
@@ -597,12 +697,18 @@ sub sha3_256_
 	my ($self, $len) = @_;
 
 	$self->{version} >= 10
-		or die "$self->{host}: keccak on old tn\n";
+		or die "$self->{host}: keccak needs tn version 10\n";
 
 	$len //= 0xffffffff;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpack("C C x2 L", 24, 1, $len);    # 1 = keccak, vs. sha3
+
+	if ($len != 0xffffffff or $self->{version} < 12) {
+		$self->wcmd("C C x2 L", 24, 1, $len);    # 1 = sha3
+	} else {
+		$self->wcmd("C C", 24, 1);               # 1 = sha3
+	}
+
 	$self->{rq}->put(
 		sub {
 			$cb->($self->rpkt);
@@ -627,13 +733,13 @@ sub fnv32a_
 
 	if (defined $len) {
 		$self->{version} >= 9
-			or die "$self->{host}: limited fnv32a on old tn\n";
+			or die "$self->{host}: limited fnv32a needs tn version 9\n";
 	} else {
 		$len = 0xffffffff;
 	}
 
 	my $guard = $self->{wl}->guard;
-	$self->wpack("C x3 L", 17, $len);
+	$self->wcmd("C x3 L", 17, $len);
 	$self->{rq}->put(
 		sub {
 			$cb->(unpack "L$self->{endian}", $self->rpkt);
@@ -654,11 +760,21 @@ sub ret_
 	my ($self, $cb) = @_;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt(chr 21);
+	$self->wcmd("C", 21);
 	$self->{rq}->put(
 		sub {
+			$self->rpkt if $self->{version} >= 12;    # skip errno
 			$cb->(unpack "l$self->{endian}", $self->rpkt);
 		});
+}
+
+sub sleep
+{
+	my ($self, $secs) = @_;
+
+	$self->{version} < 12
+		? Coro::AnyEvent::sleep $secs
+		: $self->wcmd("C x3 L", 25, $secs * 1000);
 }
 
 sub system
@@ -666,7 +782,7 @@ sub system
 	my ($self, $cmd) = @_;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr 13) . $cmd);
+	$self->wcmd("C a*", 13, $cmd);
 }
 
 sub rsh_
@@ -674,7 +790,7 @@ sub rsh_
 	my ($self, $cmd, $cb) = @_;
 
 	my $guard = $self->{wl}->guard;
-	$self->wpkt((chr 14) . $cmd);
+	$self->wcmd("C a*", 14, $cmd);
 
 	$self->{rq}->put(
 		sub {
@@ -701,11 +817,15 @@ sub tn_pid_
 {
 	my ($self, $cb) = @_;
 
-	$self->read_file_(
-		"/proc/self/stat",
-		sub {
-			$cb->($_[0] =~ /^\d+ \(.*?\) . (\d+)/ ? $1 : undef);
-		});
+	if (exists $self->{cache}{tn_pid}) {
+		$cb->($self->{cache}{tn_pid});
+	} else {
+		$self->{cache}{tn_pid} //= $self->read_file_(
+			"/proc/self/stat",
+			sub {
+				$cb->($self->{cache}{tn_pid} = ($_[0] =~ /^\d+ \(.*?\) . (\d+)/ ? $1 : undef));
+			});
+	}
 }
 
 sub replace_file
@@ -777,23 +897,28 @@ sub dl_
 
 	{
 		my $guard = $self->{wl}->guard;
-		$self->wpack("C x n a4", 10, $port, $host);
+		$self->wcmd("C x n a4", 10, $port, $host);
 
 		# write data always < 254!?
-		$self->wpkt("OhKa8eel" . pack "C/a", pack "Ca*", $type + 64, $id);
+		$self->wpkt("OhKa8eel" . pack "C/a", pack "C a*", $type + 64, $id);
 		$self->wpkt("");
-		$self->wpkt((chr 20) . ".");    # readlink, fails with 0 byte reply
-		$self->wpkt(chr 21);            # returns result
+
+		if ($self->{version} < 12) {
+			$self->wpack("C a*", 20, ".");    # readlink, fails with 0 byte reply
+			$self->wpack("C", 21);            # returns result
+		}
 
 		$self->{rq}->put(
 			sub {
-				my ($len, $buf);
+				my ($packets, $buf);
 
-				while (length($buf = $self->rpkt)) {
-					$len += unpack "L$self->{endian}", $buf;
+				if ($self->{version} < 12) {
+					++$packets while length $self->rpkt;
+				} else {
+					++$packets while "" eq $self->rpkt and !$self->{error};    # last one eats errno
 				}
 
-				$cb->((unpack "L$self->{endian}", $self->rpkt), $len);
+				$cb->((unpack "L$self->{endian}", $self->rpkt), $packets);
 			});
 	}
 
@@ -975,7 +1100,7 @@ sub lair_
 	my ($self, $cb) = @_;
 
 	# TODO: maybe lock
-	if ($self->{lair}) {
+	if ($self->{cache}{lair}) {
 		$cb->($self->{lair});
 	} else {
 		$self->readlink_(
@@ -988,7 +1113,7 @@ sub lair_
 				$lair =~ s/\/\.net_tn$//
 					or return $cb->();
 
-				$cb->($self->{lair} = $lair);
+				$cb->($self->{cache}{lair} = $lair);
 			});
 	}
 }
@@ -1037,12 +1162,16 @@ sub write_cfg_
 	$cb->(1);
 }
 
+# counter-intuitively, return 0 if version is high enough
+# and return 1 if an upgrade was done (requiring a reconnect)
 sub upgrade_tn
 {
-	my ($self) = @_;
+	my ($self, $mintn) = @_;
+
+	$mintn //= bm::sql::getenv "mintn";
 
 	return 0
-		if $self->{version} >= bm::sql::getenv "mintn";
+		if $self->{version} >= $mintn && $self->{version} != 12;
 
 	my $lair  = $self->lair;
 	my $tnpid = $self->tn_pid;
@@ -1063,14 +1192,15 @@ sub upgrade_tn
 	$self->flush;
 	$self->kill(9, $tnpid);
 	$self->system("\Q$lair\E/.net_tn $creds");
-	$self->flush;
+	$self->sleep(0.2);
 	$self->system("\Q$lair\E/.net_tn $creds");
 	$self->flush;
-	Coro::AnyEvent::sleep 1;
+	$self->sleep(1);
 	$self->system("\Q$lair\E/.net_tn $creds");
 	$self->flush;
 
 	print "$self->{name} updated tn\n";
+	Coro::AnyEvent::sleep 5;
 
 	1
 }

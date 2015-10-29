@@ -69,7 +69,7 @@ sub tn_login_fh
 					$cb->($phase ? 0 : undef);
 				}
 			} elsif ($buf =~ $qr_shell) {
-				$cb->(1, $fh);
+				$cb->(1, $fh, $buf);
 			} elsif ($buf =~ $qr_fail) {
 				$cb->(0);
 			} elsif (7900 > length $buf) {

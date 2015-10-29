@@ -75,7 +75,7 @@ static void w(char ch)
 }
 
 // print a number, in hex, but using a..p for digits, followed by a dot
-static void prnum(uint32_t n)
+static void prxnum(uint32_t n)
 {
         do {
                 w('a' + (n & 15));
@@ -139,8 +139,8 @@ static void c_sum()
                 }
         }
 
-        prnum(hval);
-        prnum(size);
+        prxnum(hval);
+        prxnum(size);
 }
 
 static void c_df()
@@ -150,13 +150,13 @@ static void c_df()
         if (fstatfs(0, &sfsbuf))
                 quit(1);
 
-        prnum(sfsbuf.f_type);
-        prnum(sfsbuf.f_bsize);
-        prnum(sfsbuf.f_blocks);
-        prnum(sfsbuf.f_bfree);
-        prnum(sfsbuf.f_bavail);
-        prnum(sfsbuf.f_files);
-        prnum(sfsbuf.f_ffree);
+        prxnum(sfsbuf.f_type);
+        prxnum(sfsbuf.f_bsize);
+        prxnum(sfsbuf.f_blocks);
+        prxnum(sfsbuf.f_bfree);
+        prxnum(sfsbuf.f_bavail);
+        prxnum(sfsbuf.f_files);
+        prxnum(sfsbuf.f_ffree);
 }
 
 static void quit(int status)
@@ -171,7 +171,7 @@ static void quit(int status)
         write(2, &ch, 1);
 
 //  if (status)
-//    prnum (errno);
+//    prxnum (errno);
 
         _exit(status);
 }
