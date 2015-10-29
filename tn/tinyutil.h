@@ -37,7 +37,7 @@
 
 # define STRINGIFY(x) # x
 
-# define BUFFER_SIZE 8192
+# define BUFFER_SIZE 32768
 
 # define NOINLINE __attribute__ ((noinline))
 

@@ -293,7 +293,6 @@ int main(int argc, char *argv[])
                                 wpkt(buffer, 0);
 
                                 uint8_t clen;
-                                int fd;
                                 int ret;
 
                                 while ((clen = rpkt(0)))

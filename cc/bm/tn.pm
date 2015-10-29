@@ -491,7 +491,7 @@ sub readall_
 		$len = 0xffffffff;
 	}
 
-	if ($len != 0xffffffff or $self->{version} < 12 or 1) {
+	if ($len != 0xffffffff or $self->{version} < 12) {
 		$self->wcmd("C x3 L", 18, $len);
 	} else {
 		$self->wcmd("C", 18);
@@ -1101,7 +1101,7 @@ sub lair_
 
 	# TODO: maybe lock
 	if ($self->{cache}{lair}) {
-		$cb->($self->{lair});
+		$cb->($self->{cache}{lair});
 	} else {
 		$self->readlink_(
 			"/proc/self/exe",
@@ -1171,7 +1171,7 @@ sub upgrade_tn
 	$mintn //= bm::sql::getenv "mintn";
 
 	return 0
-		if $self->{version} >= $mintn && $self->{version} != 12;
+		if $self->{version} >= $mintn;
 
 	my $lair  = $self->lair;
 	my $tnpid = $self->tn_pid;
