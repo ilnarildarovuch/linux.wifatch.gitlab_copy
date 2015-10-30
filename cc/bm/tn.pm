@@ -557,7 +557,7 @@ sub xstat_
 	$self->{rq}->put(
 		sub {
 			my $unpack = $self->{version} >= 12 ? "w*" : "L$self->{endian}*";
-			my ($dev, $ino, $mode, $size, $mtime, $uid) = unpack $unpack, $self->rpkt;
+			my ($dev, $ino, $mode, $size, $mtime, $uid) = eval {unpack $unpack, $self->rpkt};
 			$cb->(  defined $dev
 				? [$dev, $ino, $mode, 1, $uid, undef, undef, $size, $mtime, $mtime, $mtime]
 				: ());
@@ -601,7 +601,7 @@ sub statfs_
 		sub {
 			my $unpack = $self->{version} >= 12 ? "w*" : "L$self->{endian}*";
 			my %info;
-			@info{qw(type bsize blocks bfree bavail files free)} = unpack $unpack, $self->rpkt;
+			@info{qw(type bsize blocks bfree bavail files free)} = eval {unpack $unpack, $self->rpkt};
 			$cb->(\%info);
 		});
 }

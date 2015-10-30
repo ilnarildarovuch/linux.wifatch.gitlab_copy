@@ -251,7 +251,7 @@ sub init
 	();
 }
 
-sub random_key(\%$)
+sub random_key(\%;$)
 {
 	my %kv = %{ $_[0] };
 	delete $kv{ $_[1] };

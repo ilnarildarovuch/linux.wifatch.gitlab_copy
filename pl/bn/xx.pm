@@ -193,6 +193,8 @@ bn::event::on hpv_w2 => sub {
 								rename "$path~", $path;
 
 								bn::log "bn::xx $src/$i: updated";
+								bn::event::inject "updatexx$i", $pl;
+								bn::event::inject "updatexx", $i, $pl;
 
 								load $i, 0;
 
