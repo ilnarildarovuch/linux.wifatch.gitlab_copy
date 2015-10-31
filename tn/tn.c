@@ -20,6 +20,10 @@
 
 // usage: tn port id64.secret64.port4 -- primitive telnet server
 
+//TODO for v14 open implies close
+//TODO for v14 maybe bring back small ropen again
+//TODO for v14 maybe remove dev from lstat or all stat, OR option for readdir to return inode+lstat
+
 //      1 -- start shell
 //      2 path -- open rdonly
 //      3 path -- open wrcreat

