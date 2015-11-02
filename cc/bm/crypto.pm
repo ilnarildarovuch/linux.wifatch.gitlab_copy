@@ -96,7 +96,7 @@ sub tn_gencreds(;$)
 	while () {
 		my $id = $id0 ^ pack "N", $c;
 
-		return ($id, gensecret $id)
+		return ($id, tn_gensecret $id)
 			if $type == ord Digest::KeccakOld::sha3_256 $id . $TNKEY_TYPE;
 
 		++$c;

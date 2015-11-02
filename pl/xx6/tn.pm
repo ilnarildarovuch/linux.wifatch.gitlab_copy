@@ -21,7 +21,7 @@ package xx6::tn;
 
 # simplified/low memory tn client. also, does not require the secret
 
-# $self = [0fh, 1host, 2port, 3version, 4arch, 5endian, 6ww, 7sndbuf]
+# $self = [0fh, 1host, 2port, 3version, 4arch, 5endian, 6ww, 7sndbuf, 8prevstat]
 
 sub new
 {
@@ -103,7 +103,7 @@ sub login
 	($self->[3], $self->[4]) = split /\//, $self->rpkt;
 	$self->[5] = $self->rpkt eq "\x11\x22\x33\x44" ? ">" : "<";
 
-	return unless $self->[3] eq "13";
+	return unless $self->[3] == 14;
 
 	1 while length $self->rpkt;    # env, unused
 
@@ -126,9 +126,9 @@ sub chdir
 
 sub kill
 {
-	my ($self, $signal, @pids) = @_;
+	my ($self, $signal, $pid) = @_;
 
-	$self->wpack("CCxxL", 5, $signal, $_) for @pids;
+	$self->wpack("CCxxL", 5, $signal, $_);
 }
 
 sub close
@@ -142,7 +142,7 @@ sub ropen
 {
 	my ($self, $path) = @_;
 
-	$self->wpack("Cxsla*", 26, 0, 0, $path);    # 0 = O_RDONLY
+	$self->wpack("Cxsla*", 4, 0, 0, $path);    # 0 = O_RDONLY
 }
 
 sub lseek
@@ -156,7 +156,7 @@ sub read_
 {
 	my ($self, $len) = @_;
 
-	$self->wpack("C x3 L", 18, $len);
+	$self->wpack("Cx3L", 18, $len);
 }
 
 sub _read
@@ -202,7 +202,14 @@ sub _xstat
 {
 	my $self = shift;
 
-	my ($dev, $ino, $mode, $size, $mtime, $uid) = unpack "w*", $self->rpkt;
+	my $prev = $self->[8] ||= [(0) x 7];
+	my ($flags, @fields) = unpack "C w*", $self->rpkt;
+
+	for (0 .. 7) {
+		$prev->[$_] = shift @fields if $flags & (1 << $_);
+	}
+
+	($dev, $ino, $mode, $nlink, $uid, $gid, $size, $mtime) = @$prev;
 
 	defined $dev
 		? [$dev, $ino, $mode, 1, $uid, undef, undef, $size, $mtime, $mtime, $mtime]

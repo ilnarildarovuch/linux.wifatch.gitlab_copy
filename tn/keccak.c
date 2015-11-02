@@ -83,6 +83,7 @@ static struct
         int inqueue;
 } Keccak_state;
 
+__attribute__ ((noinline))
 static void Keccak_bss(void)
 {
 #if __BYTE_ORDER == __BIG_ENDIAN
@@ -101,6 +102,7 @@ static void Keccak_bss(void)
 #endif
 }
 
+__attribute__ ((noinline))
 static void KeccakF(void)
 {
         int round, x, y;
@@ -160,12 +162,12 @@ static void KeccakF(void)
         Keccak_bss();
 }
 
-static void Keccak_Init(void)
+void Keccak_Init(void)
 {
         memset(&Keccak_state, 0, sizeof (Keccak_state));
 }
 
-static void Keccak_Update(const uint8_t * data, unsigned int len)
+void Keccak_Update(const uint8_t * data, unsigned int len)
 {
         while (len--) {
                 Keccak_state.state[Keccak_state.inqueue++] ^= *data++;
@@ -177,7 +179,7 @@ static void Keccak_Update(const uint8_t * data, unsigned int len)
         }
 }
 
-static void Keccak_Final(uint8_t * out, int sha3)
+void Keccak_Final(uint8_t * out, int sha3)
 {
         // Padding
         Keccak_state.state[Keccak_state.inqueue] ^= sha3 ? 0x06 : 0x01;
@@ -187,13 +189,6 @@ static void Keccak_Final(uint8_t * out, int sha3)
 
         // Output
         memcpy(out, Keccak_state.state, 256 / 8);
-}
-
-static void crypto_hash(unsigned char *out, const unsigned char *in, unsigned long long inlen)
-{
-        Keccak_Init();
-        Keccak_Update(in, inlen);
-        Keccak_Final(out, 0);
 }
 
 #ifdef TEST

@@ -207,6 +207,8 @@ _ecdsa_verify (SV *sig, SV *data)
 	OUTPUT:
         RETVAL
 
+#if 0
+
 SV *
 powm (SV *xbin, SV *dbin, SV *Nbin)
 	CODE:
@@ -225,4 +227,6 @@ powm (SV *xbin, SV *dbin, SV *Nbin)
         mp_clear (&N);
 	OUTPUT:
         RETVAL
+
+#endif
 

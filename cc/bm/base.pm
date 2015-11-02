@@ -24,10 +24,16 @@ package bm::base;
 
 use strict;
 
-use Coro ();
+use Socket ();
+use Coro   ();
 
 use bm::socks;
 use bn::io;
+
+sub bn::crypto::ecdsa_verify($$)
+{
+	1
+}
 
 sub bn::func::tcp_connect($$;$)
 {
@@ -43,6 +49,22 @@ sub bn::func::tcp_connect_($$$;$)
 	Coro::async {
 		$cb->(bn::func::tcp_connect $host, $port, $timeout);
 	};
+}
+
+sub bn::func::id2str($)
+{
+	(Socket::inet_ntoa substr $_[0], 0, 4) . ":" . unpack "x4n", $_[0];
+}
+
+sub bn::func::str2id($)
+{
+	my ($ip, $port) = split /:/, $_[0];
+	pack "a4n", (Socket::inet_aton $ip), $port;
+}
+
+sub bn::log
+{
+	print "BN::LOG $_[0]\n";
 }
 
 1

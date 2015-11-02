@@ -34,7 +34,7 @@ sub get_unixtime_from($)
 	socket my $fh, Socket::PF_INET, Socket::SOCK_DGRAM, 0
 		or return;
 
-	connect $fh, Socket::sockaddr_in 123, AnyEvent::Socket::parse_address $host
+	connect $fh, Socket::sockaddr_in 123, Socket::inet_aton $host
 		or return;
 
 	for (1 .. 5) {

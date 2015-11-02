@@ -422,7 +422,7 @@ bn::event::on port_connect_me0aX7Ew => sub {
 		or return;
 
 	($hello, $port) = unpack "Cn", $hello;
-	my $id = pack "a4n", (AnyEvent::Socket::parse_address $host), $port;
+	my $id = pack "a4n", (Socket::inet_aton $host), $port;
 
 	if ((substr $id, 0, 4) eq bn::net::own_ipbin) {
 		delete $as{$id};

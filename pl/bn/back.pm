@@ -67,7 +67,7 @@ sub _snd
 				or return;
 
 			my ($host, $port) = unpack "a4 n", $bc[rand @bc];
-			$peer = AnyEvent::Socket::pack_sockaddr $port, $host;
+			$peer = Socket::pack_sockaddr_in $port, $host;
 		};
 
 		send $bn::port::UDP, $msg, 0, $peer;

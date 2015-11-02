@@ -21,8 +21,9 @@ package bm::file;
 
 # handy object to represent files, including often-needed checksums
 
-use Coro::AIO   ();
-use Digest::SHA ();
+use Coro::AIO    ();
+use Digest::SHA  ();
+use Digest::SHA3 ();
 
 our %FILE;
 
@@ -61,8 +62,9 @@ sub load($)
 		0 <= ($file->{size} = Coro::AIO::aio_load "$BASE/$path", $file->{data})
 			or die "$path: $!";
 
-		$file->{fnv} = fnv32a $file->{data};
-		$file->{sha} = Digest::SHA::sha256 $file->{data};
+		$file->{fnv}  = fnv32a $file->{data};
+		$file->{sha}  = Digest::SHA::sha256 $file->{data};
+		$file->{sha3} = Digest::SHA3::sha3_256 $file->{data};
 
 		$file->{version} = $1
 			if $file->{data} =~ /\nZieH8yie Zip0miib (\d+) [^\n]+\n$/;
@@ -80,6 +82,7 @@ sub string($)
 		size  => length $_[0],
 		fnv   => (fnv32a $_[0]),
 		sha   => (Digest::SHA::sha256 $_[0]),
+		sha3  => (Digest::SHA3::sha3_256 $_[0]),
 	};
 }
 

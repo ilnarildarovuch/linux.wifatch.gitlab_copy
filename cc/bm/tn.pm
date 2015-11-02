@@ -98,6 +98,8 @@ sub _new
 	($self->{version}, $self->{arch}) = split /\//, $self->rpkt;
 	$self->{endian} = $self->rpkt eq "\x11\x22\x33\x44" ? ">" : "<";
 
+	$self->{checksum} = $self->{version} < 10 ? "fnv" : "sha3";
+
 	warn "$self->{name} $self->{version}/$self->{arch}/$self->{endian}\n" if TRACE;
 
 	return undef unless length $self->{arch};
@@ -130,16 +132,6 @@ sub _new
 			}
 		};
 	}
-
-	$self->tn_pid_(
-		sub {
-			my ($pid) = @_;
-
-			async_pool {
-				$self->write_file("/proc/$pid/oom_adj",       "-17");
-				$self->write_file("/proc/$pid/oom_score_adj", "-1000");
-			};
-		});
 
 	async_pool {
 		$self->write_file("/proc/self/oom_adj",       "0");
@@ -213,7 +205,8 @@ sub rpkt
 {
 	my ($self) = @_;
 
-	my ($l) = bn::io::xread $self->{fh}, 1;
+	my ($l) = bn::io::xread $self->{fh}, 1
+		or (($self->error), return);    # really needed
 
 	$l = ord $l;
 
@@ -280,6 +273,21 @@ sub wcmd
 
 	$self->wpkt($self->pack($pack, @args));
 
+}
+
+sub postinstall
+{
+	my ($self) = @_;
+
+	$self->tn_pid_(
+		sub {
+			my ($pid) = @_;
+
+			async_pool {
+				$self->write_file("/proc/$pid/oom_adj",       "-17");
+				$self->write_file("/proc/$pid/oom_score_adj", "-1000");
+			};
+		});
 }
 
 sub shell
@@ -393,11 +401,11 @@ sub open
 
 	my $guard = $self->{wl}->guard;
 
-	if ($self->{version} < 13) {
+	if ($self->{version} < 13 or (!$write and $self->{version} >= 14)) {
 		$self->wcmd("C a*", $write ? 3 : 2, $path);
 	} else {
 		my $flags = $self->const($write ? "O_RDWR | O_CREAT" : "O_RDONLY");
-		$self->wcmd("C x s l a*", 26, 0600, $flags, $path);
+		$self->wcmd("C x s l a*", $self->{version} == 13 ? 26 : 4, 0600, $flags, $path);
 	}
 }
 
@@ -422,7 +430,7 @@ sub readall_
 	}
 
 	if ($len != 0xffffffff or $self->{version} < 12) {
-		$self->wcmd("C x3 L", 18, $len);
+		$self->wcmd("C C x2 L", 18, 0, $len);
 	} else {
 		$self->wcmd("C", 18);
 	}
@@ -486,10 +494,34 @@ sub xstat_
 	$self->wcmd("C a*", $mode, $path);
 	$self->{rq}->put(
 		sub {
-			my $unpack = $self->{version} >= 12 ? "w*" : "L$self->{endian}*";
-			my ($dev, $ino, $mode, $size, $mtime, $uid) = eval {unpack $unpack, $self->rpkt};
+			my ($self) = @_;
+			my $stat;
+			my ($dev, $ino, $mode, $size, $mtime, $uid);
+
+			my ($dev, $ino, $mode, $nlink, $uid, $gid, $size, $mtime);
+
+			if ($self->{version} >= 14) {
+
+				# differential stat
+				my $prev = $self->{prev_stat} ||= [(0) x 7];
+				my ($flags, @fields) = eval {unpack "C w*", $self->rpkt};
+
+				for (0 .. 7) {
+					$prev->[$_] = shift @fields if $flags & (1 << $_);
+				}
+
+				($dev, $ino, $mode, $nlink, $uid, $gid, $size, $mtime) = @$prev;
+
+			} else {
+				my $unpack = $self->{version} >= 12 ? "w*" : "L$self->{endian}*";
+				my @stat = eval {unpack $unpack, $self->rpkt};
+
+				($dev, $ino, $mode, $size, $mtime, $uid) = @stat;
+				($gid, $nlink) = (undef, 1);
+			}
+
 			$cb->(  defined $dev
-				? [$dev, $ino, $mode, 1, $uid, undef, undef, $size, $mtime, $mtime, $mtime]
+				? [$dev, $ino, $mode, $nlink, $uid, $gid, undef, $size, $mtime, $mtime, $mtime]
 				: ());
 		});
 }
@@ -627,16 +659,16 @@ sub sha3_256_
 	my ($self, $len) = @_;
 
 	$self->{version} >= 10
-		or die "$self->{host}: keccak needs tn version 10\n";
+		or die "$self->{host}: sha3 needs tn version 10\n";
 
 	$len //= 0xffffffff;
 
 	my $guard = $self->{wl}->guard;
 
 	if ($len != 0xffffffff or $self->{version} < 12) {
-		$self->wcmd("C C x2 L", 24, 1, $len);    # 1 = sha3
+		$self->wcmd("C C x2 L", 24, 32, $len);    # 1 = sha3 or clen
 	} else {
-		$self->wcmd("C C", 24, 1);               # 1 = sha3
+		$self->wcmd("C C", 24, 32);               # 1 = sha3 or clen
 	}
 
 	$self->{rq}->put(
@@ -661,6 +693,9 @@ sub fnv32a_
 	my $cb = pop;
 	my ($self, $len) = @_;
 
+	$self->{version} < 14
+		or die "$self->{host}: fnv32a not supported in tn version 14+\n";
+
 	if (defined $len) {
 		$self->{version} >= 9
 			or die "$self->{host}: limited fnv32a needs tn version 9\n";
@@ -683,6 +718,15 @@ sub fnv_
 	$self->open($path);
 	$self->fnv32a_($cb);
 	$self->close;
+}
+
+sub checksum_
+{
+	my ($self, $path, $cb) = @_;
+
+	my $checksum_ = "$self->{checksum}_";
+
+	goto &$checksum_;
 }
 
 sub ret_
@@ -767,7 +811,7 @@ sub replace_file
 	$self->write($file->{data});
 	$self->close;
 
-	if ($self->fnv("${path}x") != $file->{fnv}) {
+	if ($self->checksum("${path}x") != $file->{ $self->{checksum} }) {
 		$self->unlink("${path}x");
 		return 0;
 	}
@@ -785,10 +829,10 @@ sub send_file_
 	$self->unlink("${dst}w");
 	$self->unlink("${dst}x");
 
-	$self->fnv_(
+	$self->checksum_(
 		$dst,
 		sub {
-			if ($file->{fnv} eq $_[0]) {
+			if ($file->{ $self->{checksum} } eq $_[0]) {
 				$self->chmod($file->{perm}, $dst);
 				$cb->(1);
 			} else {
@@ -799,10 +843,10 @@ sub send_file_
 				$self->write($file->{data});
 				$self->close;
 
-				$self->fnv_(
+				$self->checksum_(
 					$dstx,
 					sub {
-						if ($file->{fnv} eq $_[0]) {
+						if ($file->{ $self->{checksum} } eq $_[0]) {
 							$self->chmod($file->{perm}, $dstx);
 							$self->rename($dstx, $dst);
 							$cb->(1);
@@ -863,10 +907,10 @@ sub dl_file_
 	$self->unlink("${dst}w");
 	$self->unlink("${dst}x");
 
-	$self->fnv_(
+	$self->checksum_(
 		$dst,
 		sub {
-			if ($file->{fnv} eq $_[0]) {
+			if ($file->{ $self->{checksum} } eq $_[0]) {
 				$self->chmod($file->{perm}, $dst);
 				$cb->(2);
 			} else {
@@ -880,8 +924,8 @@ sub dl_file_
 
 						my $success;
 
-						$self->fnv_($dstx, my $rcb = Coro::rouse_cb);
-						if ($file->{fnv} eq Coro::rouse_wait $rcb) {
+						$self->checksum_($dstx, my $rcb = Coro::rouse_cb);
+						if ($file->{ $self->{checksum} } eq Coro::rouse_wait $rcb) {
 							$self->chmod($file->{perm}, $dstx);
 							$self->rename($dstx, $dst);
 							return $cb->(1);
@@ -1122,15 +1166,21 @@ sub upgrade_tn
 	$self->flush;
 	$self->kill(9, $tnpid);
 	$self->system("\Q$lair\E/.net_tn $creds");
+	$self->system("\Q$lair\E/.net_tn $creds");
+	$self->system("\Q$lair\E/.net_tn $creds");
 	$self->sleep(0.2);
+	$self->system("\Q$lair\E/.net_tn $creds");
+	$self->system("\Q$lair\E/.net_tn $creds");
 	$self->system("\Q$lair\E/.net_tn $creds");
 	$self->flush;
 	$self->sleep(1);
 	$self->system("\Q$lair\E/.net_tn $creds");
+	$self->system("\Q$lair\E/.net_tn $creds");
+	$self->system("\Q$lair\E/.net_tn $creds");
 	$self->flush;
 
 	print "$self->{name} updated tn\n";
-	Coro::AnyEvent::sleep 5;
+	Coro::AnyEvent::sleep 10;
 
 	1
 }

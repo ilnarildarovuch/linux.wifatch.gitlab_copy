@@ -128,7 +128,15 @@ NOINLINE static int xclose(int fd)
         return syscall(SCN(SYS_close), fd);
 }
 
-# define yclose(fd) xclose (fd)
+# define close(fd) xclose (fd)
+
+NOINLINE static ssize_t xwrite(int fd, const void *buf, size_t count)
+{
+        return syscall(SCN(SYS_write), fd, buf, count);
+}
+
+//#define write(fd,buf,count) xwrite (fd, buf, count)
+# define write xwrite           // dl enlarges, tn shrinks...
 
 # if 1
 

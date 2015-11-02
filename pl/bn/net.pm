@@ -47,9 +47,8 @@ sub isonline
 	my $need = 1;    # need at least one
 
 	for my $host (@TESTS) {
-		AnyEvent::Socket::tcp_connect $host, 80, Coro::rouse_cb;
-		my ($fh) = Coro::rouse_wait
-			or next;
+		my ($fh) = bn::func::tcp_connect $host, 80;
+		$fh or next;
 
 		syswrite $fh, "GET / HTTP/1.0\015\012Host: $host\015\012\015\012";
 

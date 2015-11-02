@@ -37,6 +37,7 @@ use CBOR::XS         ();
 use Errno            ();
 use Guard            ();
 use POSIX            ();
+use Socket           ();
 use Filesys::Statvfs ();
 use AnyEvent         ();
 use AnyEvent::Util   ();
