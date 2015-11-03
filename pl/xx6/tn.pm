@@ -103,7 +103,7 @@ sub login
 	($self->[3], $self->[4]) = split /\//, $self->rpkt;
 	$self->[5] = $self->rpkt eq "\x11\x22\x33\x44" ? ">" : "<";
 
-	return unless $self->[3] == 14;
+	return unless $self->[3] =~ /^(?:14|15)$/;
 
 	1 while length $self->rpkt;    # env, unused
 
@@ -128,9 +128,10 @@ sub kill
 {
 	my ($self, $signal, $pid) = @_;
 
-	$self->wpack("CCxxL", 5, $signal, $_);
+	$self->wpack("CCxxL", 5, $signal, $pid);
 }
 
+# an explicit close
 sub close
 {
 	my ($self) = @_;
@@ -142,7 +143,7 @@ sub ropen
 {
 	my ($self, $path) = @_;
 
-	$self->wpack("Cxsla*", 4, 0, 0, $path);    # 0 = O_RDONLY
+	$self->wpack("Ca*", 2, $path);
 }
 
 sub lseek
@@ -250,9 +251,9 @@ sub _readdir
 
 sub sha3_256_
 {
-	my ($self, $len) = @_;
+	my ($self, $len, $shalen) = @_;
 
-	$self->wpack("CCx2L", 24, 1, $len);    # 1 = sha3
+	$self->wpack("CCx2L", 24, $shalen || 32, $len);    # 1 = sha3
 }
 
 *_sha3_256 = \&rpkt;

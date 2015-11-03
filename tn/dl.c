@@ -45,6 +45,7 @@
 #include <time.h>
 
 #include "tinyutil.h"
+#include "uclibc-tiny.h"
 
 #define MAGIC "Yee1Ahwv"
 

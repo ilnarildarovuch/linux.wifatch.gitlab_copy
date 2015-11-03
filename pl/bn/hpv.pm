@@ -100,13 +100,18 @@ shift @shuffle_list while @shuffle_list > 4;
 
 $shuffle_adder ||= bn::func::async {
 	while (my $id = shift @shuffle_list) {
+		my $wait = $shuffle0 / 10;
+
 		{
 			my ($fh) = bn::func::connect_to $id, 10;
 			bn::log "hpv shuffler " . !$fh;
-			add_passive $id if $fh;
+			if ($fh) {
+				add_passive $id;
+				$wait = $shuffle0;
+			}
 		}
 
-		Coro::AnyEvent::sleep $shuffle0;
+		Coro::AnyEvent::sleep $wait;
 	}
 
 	undef $shuffle_adder;

