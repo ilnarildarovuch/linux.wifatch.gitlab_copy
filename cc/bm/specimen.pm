@@ -32,6 +32,7 @@ our @CATEGORY = qw(
 	unknown
 	malware
 	corruptelf
+	corruptupx
 	dynamic
 	innocent
 	suspicious
@@ -59,10 +60,13 @@ sub load($$$)
 	my $path = &pathbin;
 
 	open my $fh, "<:raw", $path
-		or die "$path: $!\n";
+		or return 0;
+
 	my $size = -s $fh;
 	$size == sysread $fh, $_[2], $size
-		or die "$path: short read\n";
+		or return 0;
+
+	1
 }
 
 1

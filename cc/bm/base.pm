@@ -26,6 +26,7 @@ use strict;
 
 use Socket ();
 use Coro   ();
+use POSIX  ();
 
 use bm::socks;
 use bn::io;

@@ -38,6 +38,57 @@ sub new
 	($self, $id, $chg);
 }
 
+# same as new, but uses local .net_tn
+sub new_exec
+{
+	my ($class, $path) = @_;
+
+	socketpair $c, $s, Socket::AF_UNIX, Socket::SOCK_STREAM, 0
+		or return;
+
+	if (fork eq 0) {
+		open STDIN,  "<&", fileno $s;
+		open STDOUT, ">&", fileno $s;
+		close $c;
+		close $s;
+		exec $path, "--slave", "a" x (64 + 64 + 4), 0;
+		POSIX::_exit 255;
+	}
+
+	close $s;
+
+	my $self = bless [$c, undef, $path, undef, undef, undef, undef, ""], $class;
+
+	$self->_login;
+
+	$self
+}
+
+sub _login
+{
+	my ($self) = @_;
+
+	($self->[3], $self->[4]) = split /\//, $self->rpkt;
+	$self->[5] = $self->rpkt eq "\x11\x22\x33\x44" ? ">" : "<";
+
+	return unless $self->[3] =~ /^(?:14|15|16|17|18)$/;
+
+	1 while length $self->rpkt;    # env, unused
+
+	1
+}
+
+sub login
+{
+	my ($self, $resp) = @_;
+
+	my $fh = $self->[0];
+
+	bn::io::xwrite $fh, pack "C/a", $resp;
+
+	$self->_login;
+}
+
 sub rpkt
 {
 	my $self = shift;
@@ -90,24 +141,6 @@ sub wpack
 	my ($self, $pack, @args) = @_;
 
 	$self->wpkt($self->pack($pack, @args));
-}
-
-sub login
-{
-	my ($self, $resp) = @_;
-
-	my $fh = $self->[0];
-
-	bn::io::xwrite $fh, pack "C/a", $resp;
-
-	($self->[3], $self->[4]) = split /\//, $self->rpkt;
-	$self->[5] = $self->rpkt eq "\x11\x22\x33\x44" ? ">" : "<";
-
-	return unless $self->[3] =~ /^(?:14|15)$/;
-
-	1 while length $self->rpkt;    # env, unused
-
-	1
 }
 
 sub unlink

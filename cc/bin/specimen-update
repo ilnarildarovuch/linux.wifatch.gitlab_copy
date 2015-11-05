@@ -32,6 +32,8 @@ use bm::specimen;
 use Digest::SHA  ();
 use Digest::SHA3 ();
 
+my @names;
+
 for my $cat (0 .. $#bm::specimen::CATEGORY) {
 	my %indb;
 	{
@@ -39,16 +41,29 @@ for my $cat (0 .. $#bm::specimen::CATEGORY) {
 		@indb{@sha256} = (1) x @sha256;
 	}
 
-bin:
 	for my $bin (<specimen/$bm::specimen::CATEGORY[$cat]/*.bin>) {
 		(my $sha256 = $bin) =~ s%^.*/%%;
 		$sha256 = pack "H64", $sha256;
-
 		next if delete $indb{$sha256};
+		push @{ $names[$cat] }, [$bin, $sha256];
+	}
 
-		bm::specimen::load $cat, $sha256, my $data;
+	for my $sha256 (keys %indb) {
+		next if -f bm::specimen::path $cat, $sha256, "meta";
+		printf "removing from database: %s %s\n", $bm::specimen::CATEGORY[$cat], unpack "H*", $sha256;
+		sql_exec "delete from specimen where sha256 = ?", $sha256;
+	}
+}
+
+for my $cat (0 .. $#bm::specimen::CATEGORY) {
+bin:
+	for (@{ $names[$cat] }) {
+		my ($bin, $sha256) = @$_;
+
+		bm::specimen::load $cat, $sha256, my $data
+			or die "$bin: $!\n";
 		length $data
-			or next;
+			or die "$bin: zero length file\n";
 
 		my $sha3_1k = Digest::SHA3::sha3_256 substr $data, 0, 1024;
 
@@ -58,7 +73,8 @@ bin:
 			$sha3_1k;
 
 		while ($st->fetch) {
-			bm::specimen::load $o_cat, $o_sha256, my $o_data;
+			bm::specimen::load $o_cat, $o_sha256, my $o_data
+				or next;
 
 			if (length $o_data >= length $data) {
 				if ($data eq substr $o_data, 0, length $data) {
@@ -89,11 +105,6 @@ bin:
 			(bm::file::fnv32a $data),
 			length $data,
 			$cat;
-	}
-
-	for (keys %indb) {
-		printf "removing from database: %s\n", unpack "H*", $_;
-		sql_exec "delete from specimen where sha256 = ?", $_;
 	}
 }
 
