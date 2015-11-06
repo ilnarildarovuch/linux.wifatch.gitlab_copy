@@ -81,7 +81,7 @@ PGP Key ID EFE59C89 (24CE E600 AF6F 23F4 8C31  7479 EFBF 5721 EFE5 9C89)
   No. The idea for this botnet came after reading the
   [Carna paper](http://internetcensus2012.bitbucket.org/paper.html). The main
   interesting points were "2012 may be the last time [...] this was possible"
-  and the fact that embedded device security seems to be virtually nonexistant,
+  and the fact that embedded device security seems to be virtually nonexistent,
   even to our own surprise.
 
   Bootstrapping a botnet was a technical challenge, and the prize was
