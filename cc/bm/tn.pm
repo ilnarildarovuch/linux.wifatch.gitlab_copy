@@ -1223,11 +1223,16 @@ sub upgrade
 		or die "$self->{name} unable to dl bn\n";
 
 	my $pl = $self->load_pl;
-	$self->dl_file($pl, "$lair/.net_pl");
 	unless ($self->dl_file($pl, "$lair/.net_pl")) {
 		warn "$self->{name} unable to dl pl, trying direct upload\n";
 		$self->replace_file("$lair/.net_pl", $pl)
 			or die "$self->{name} unable to send pl\n";
+	}
+
+	my $tn = bm::file::load "arch/$_[0]{arch}/tn";
+	unless ($self->dl_file($tn, "$lair/.net_tn")) {
+		$self->replace_file("$lair/.net_tn", $tn)
+			or die "$self->{name}: unable to dl net_tn\n";
 	}
 
 	my $cfg = $self->read_cfg;
