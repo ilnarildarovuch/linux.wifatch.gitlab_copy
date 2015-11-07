@@ -42,7 +42,7 @@ our @CATEGORY = qw(
 
 sub cat_is_malware($)
 {
-	($_[0] == 1 or $_[0] == 2) ? 1 : 0;
+	($_[0] >= 1 and $_[0] <= 3) ? 1 : 0;
 }
 
 sub path($$$)

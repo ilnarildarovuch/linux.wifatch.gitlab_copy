@@ -1152,6 +1152,8 @@ sub upgrade_tn
 
 	my $tn = bm::file::load "arch/$_[0]{arch}/tn";
 
+	print "$self->{name}: upgrading tn\n";
+
 	unless ($self->dl_file($tn, "$lair/.net_tn")) {
 		$self->replace_file("$lair/.net_tn", $tn)
 			or die "$self->{name}: unable to dl net_tn\n";

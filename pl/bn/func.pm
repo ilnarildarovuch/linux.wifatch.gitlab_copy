@@ -325,7 +325,9 @@ sub id2str($)
 sub str2id($)
 {
 	my ($ip, $port) = split /:/, $_[0];
-	pack "a4n", (Socket::inet_aton $ip), $port;
+
+	# uClibc inet_aton is faulty, we currently *have* to use AnyEvent::Socket
+	pack "a4n", (AnyEvent::Socket::parse_address $ip), $port;
 }
 
 sub abspath($)

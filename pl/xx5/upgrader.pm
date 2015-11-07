@@ -129,9 +129,12 @@ while () {
 					$bn::port::BN_UPTODATE = 0;
 				} else {
 					my $dst = "$::BASE/.net_${net}u";
+					my $t0  = AE::now;
+					bn::log "BNUP $net starting download $net from $neigh->[1]";
 
 					if ((bn::fileclient::download_from $src, 2, $need{$net}[1], $dst) and verify $net, "u") {
-						bn::back::snd print => "downloaded $bn::BNARCH $net from $neigh->[1] neighbour";
+						$t0 = int AE::now - $t0;
+						bn::back::snd print => "downloaded $bn::BNARCH $net from $neigh->[1] neighbour (${t0}s)";
 						delete $need{$net};
 					}
 				}
