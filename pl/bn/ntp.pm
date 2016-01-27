@@ -34,10 +34,10 @@ sub get_unixtime_from($)
 	socket my $fh, Socket::PF_INET, Socket::SOCK_DGRAM, 0
 		or return;
 
-	connect $fh, Socket::sockaddr_in 123, Socket::inet_aton $host
+	connect $fh, Socket::sockaddr_in 123, bn::func::inet_aton $host
 		or return;
 
-	for (1 .. 5) {
+	for (1 .. 3) {
 		syswrite $fh, "\010" . "\0" x 47;
 
 		if (Coro::AnyEvent::readable $fh, 0.5) {
@@ -75,7 +75,7 @@ sub ntp_diff()
 			if $tn > 1300000000;
 	}
 
-	$last_diff = @t ? (List::Util::sum @t) / @t : 0;
+	$last_diff = @t ? (List::Util::sum @t) / @t : undef;
 }
 
 our $next_update;
@@ -89,9 +89,10 @@ sub update();
 sub update()
 {
 	my $time = AE::now;
-	my $ntp  = AE::now + ntp_diff;
+	my $ntp  = ntp_diff;
 
-	if ($next_update) {
+	if ($next_update && defined $ntp) {
+		$ntp += $time;
 		my $diff = abs 1 - ($time - $last_time) / ($ntp - $last_ntp) * $factor;
 
 		if ($diff > $MAX_DIFF) {
@@ -104,19 +105,20 @@ sub update()
 
 		$factor = $MIN_FACTOR if $factor < $MIN_FACTOR;
 		$factor = $MAX_FACTOR if $factor > $MAX_FACTOR;
+
+		$bn::cfg{ntp_factor} = $factor;
+		bn::cfg::save;
+
+		$last_time = $time;
+		$last_ntp  = $ntp;
 	}
 
-	$last_time   = $time;
-	$last_ntp    = $ntp;
 	$next_update = AE::timer $interval * $factor + rand 60, 0, sub {
 		bn::func::async {
 			update;
-			bn::log "ntp updated $factor, " . ($ntp - $time);
+			bn::log "ntp update $factor, $diff";
 		};
 	};
-
-	$bn::cfg{ntp_factor} = $factor;
-	bn::cfg::save;
 }
 
 *force = \&update;

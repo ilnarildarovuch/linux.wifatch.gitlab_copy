@@ -317,6 +317,14 @@ sub connect_to($;$)
 	tcp_connect $ip, $port, $timeout;
 }
 
+# uClibc inet_aton is faulty, roll our own
+sub inet_aton($)
+{
+	@_ = split /\./, $_[0];
+
+	pack "N", (pop) + ($_[0] << 24) + ($_[1] << 16) + ($_[2] << 8);
+}
+
 sub id2str($)
 {
 	(Socket::inet_ntoa substr $_[0], 0, 4) . ":" . unpack "x4n", $_[0];
@@ -325,9 +333,7 @@ sub id2str($)
 sub str2id($)
 {
 	my ($ip, $port) = split /:/, $_[0];
-
-	# uClibc inet_aton is faulty, we currently *have* to use AnyEvent::Socket
-	pack "a4n", (AnyEvent::Socket::parse_address $ip), $port;
+	pack "a4n", inet_aton $ip, $port;
 }
 
 sub abspath($)

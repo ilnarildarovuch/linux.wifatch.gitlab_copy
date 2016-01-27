@@ -22,7 +22,9 @@
 # define TINY_UTIL_H
 
 # include <inttypes.h>
+# include <sys/types.h>
 # include <sys/syscall.h>
+# include <sys/stat.h>
 
 # if __ARM_EABI__
 #  define SCN(n) ((n) & 0xfffff)

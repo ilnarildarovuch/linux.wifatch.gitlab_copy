@@ -30,19 +30,27 @@ use bm::sql;
 
 our @CATEGORY = qw(
 	unknown
-	malware
-	corruptelf
-	corruptupx
+	malware!
+	corruptelf!
+	corruptupx!
 	dynamic
 	innocent
 	suspicious
 	notelf
 	notelfexec
+	malware-manual!
+	innocent-manual
 );
+
+our @IS_MALWARE;
+
+for (0 .. $#CATEGORY) {
+	$IS_MALWARE[$_] = 1 if $CATEGORY[$_] =~ s/!$//;
+}
 
 sub cat_is_malware($)
 {
-	($_[0] >= 1 and $_[0] <= 3) ? 1 : 0;
+	$IS_MALWARE[$_[0]] ? 1 : 0;
 }
 
 sub path($$$)

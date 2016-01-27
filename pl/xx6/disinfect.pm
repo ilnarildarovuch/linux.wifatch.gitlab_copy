@@ -240,11 +240,12 @@ sub block_telnet
 		for (1 .. 9) {
 			kill $sig, $find_telnet->();
 
-			if (    $PORT23_LISTENER ||= eval {
-					AnyEvent::Socket::tcp_server undef, 23,
-						sub {&$PORT23_ACCEPT}
-				}
-				) {
+			$PORT23_LISTENER ||= eval {
+				AnyEvent::Socket::tcp_server undef, 23,
+					sub {&$PORT23_ACCEPT}
+			} for 1 .. 128;
+
+			if ($PORT23_ACCEPT) {
 				bn::log "block_telnet success bind port 23";
 				return;
 			}

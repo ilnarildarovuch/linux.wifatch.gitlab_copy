@@ -22,16 +22,22 @@
 // and removes constructors, unwinding, and replaces the default uClibc_main
 // by a much smaller version that is sufficient for our tiny utilities
 
+#include <unistd.h>
+
+#include "tinyutil.h"
+
 void __uClibc_main(int (*main) (int, char **, char **), int argc,
                    char **argv, void (*app_init) (void), void (*app_fini) (void), void (*rtld_fini) (void), void *stack_end)
 {
-        __environ = &argv[argc + 1];
+        extern char **environ;
+
+        environ = &argv[argc + 1];
 
         /* If the first thing after argv is the arguments * the the environment is empty. */
-        if ((char *)__environ == *argv)
-                --__environ;
+        if ((char *)environ == *argv)
+                --environ;
 
-        _exit(main(argc, argv, __environ));
+        _exit(main(argc, argv, environ));
 }
 
 void kill_9(void)
