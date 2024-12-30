@@ -1,6 +1,6 @@
 # Linux.Wifatch source repository
 
-This is official Linux.Wifatch sources
+This is copy of official Linux.Wifatch sources from gitlab
 
 This repository contain all local components (missing files are
 unintentional and/or will be added later), additional C source code not
